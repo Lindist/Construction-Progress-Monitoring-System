@@ -1,0 +1,76 @@
+package config
+
+import (
+	"log"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/joho/godotenv"
+)
+
+type Config struct {
+	AppName     string
+	Port        string
+	DBConnStr   string
+	StorageRoot string
+	CorsOrigins []string
+}
+
+func LoadConfig() *Config {
+	// Try loading .env file from the current directory or parent directories
+	err := godotenv.Load()
+	if err != nil {
+		log.Println("No .env file found or error loading, using system environment variables")
+	}
+
+	appName := os.Getenv("APP_NAME")
+	if appName == "" {
+		appName = "Construction Progress Monitoring API"
+	}
+
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8000"
+	}
+
+	dbConnStr := os.Getenv("DATABASE_URL")
+	if dbConnStr == "" {
+		dbConnStr = "postgresql://postgres:postgres@localhost:5432/construction_progress?sslmode=disable"
+	}
+
+	storageRoot := os.Getenv("STORAGE_ROOT")
+	if storageRoot == "" {
+		storageRoot = "../storage"
+	}
+	
+	// Convert to absolute path
+	absStorageRoot, err := filepath.Abs(storageRoot)
+	if err == nil {
+		storageRoot = absStorageRoot
+	}
+
+	corsOriginsStr := os.Getenv("CORS_ORIGINS")
+	var corsOrigins []string
+	if corsOriginsStr != "" {
+		corsOrigins = strings.Split(corsOriginsStr, ",")
+	} else {
+		corsOrigins = []string{"http://localhost:3000", "http://localhost:3001"}
+	}
+
+	return &Config{
+		AppName:     appName,
+		Port:        port,
+		DBConnStr:   dbConnStr,
+		StorageRoot: storageRoot,
+		CorsOrigins: corsOrigins,
+	}
+}
+
+func (c *Config) UploadsDir() string {
+	return filepath.Join(c.StorageRoot, "uploads")
+}
+
+func (c *Config) MetadataDir() string {
+	return filepath.Join(c.StorageRoot, "metadata")
+}

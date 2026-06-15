@@ -1,0 +1,54 @@
+package http
+
+import (
+	"backend/config"
+
+	"github.com/gin-gonic/gin"
+)
+
+func CORSMiddleware(allowedOrigins []string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		origin := c.Request.Header.Get("Origin")
+		allowed := false
+		for _, o := range allowedOrigins {
+			if o == "*" || o == origin {
+				allowed = true
+				break
+			}
+		}
+		if allowed {
+			c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
+		} else if len(allowedOrigins) > 0 && allowedOrigins[0] == "*" {
+			c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+		}
+		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT, DELETE")
+
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(204)
+			return
+		}
+
+		c.Next()
+	}
+}
+
+func SetupRouter(handler *Handler, cfg *config.Config) *gin.Engine {
+	r := gin.Default()
+
+	// CORS Middleware
+	r.Use(CORSMiddleware(cfg.CorsOrigins))
+
+	// Static files for uploads (equivalent to FastAPI app.mount("/uploads"))
+	r.Static("/uploads", cfg.UploadsDir())
+
+	// API routes
+	api := r.Group("/api")
+	{
+		api.GET("/health", handler.Health)
+		api.POST("/uploads", handler.UploadMedia)
+	}
+
+	return r
+}
