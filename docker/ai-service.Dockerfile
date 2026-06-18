@@ -1,11 +1,12 @@
 FROM python:3.11-slim
 
 # Install FFmpeg and OpenCV system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN (apt-get update || (sleep 5 && apt-get update) || (sleep 10 && apt-get update)) && \
+    apt-get install -y --no-install-recommends \
     ffmpeg \
     libglib2.0-0 \
-    libgfontconfig1 \
-    libgl1-mesa-glx \
+    libfontconfig1 \
+    libgl1 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

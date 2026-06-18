@@ -33,16 +33,24 @@ func main() {
 		log.Printf("Warning: failed to connect to database: %v. Database functionality will be unavailable.\n", err)
 	} else {
 		log.Println("Database connection successful. Running auto-migrations...")
-		err = db.AutoMigrate(&domain.Video{})
+		err = db.AutoMigrate(&domain.User{}, &domain.Project{}, &domain.Video{})
 		if err != nil {
 			log.Printf("Warning: auto-migration failed: %v\n", err)
 		}
 	}
 
+	userRepo := repository.NewPostgresUserRepository(db)
+	projectRepo := repository.NewPostgresProjectRepository(db)
 	videoRepo := repository.NewPostgresVideoRepository(db)
+
+	authUsecase := usecase.NewAuthUsecase(userRepo)
+	projectUsecase := usecase.NewProjectUsecase(projectRepo)
 	mediaUsecase := usecase.NewMediaUsecase(videoRepo, cfg)
+
+	authHandler := delivery.NewAuthHandler(authUsecase)
+	projectHandler := delivery.NewProjectHandler(projectUsecase)
 	handler := delivery.NewHandler(mediaUsecase, cfg, db)
-	router := delivery.SetupRouter(handler, cfg)
+	router := delivery.SetupRouter(handler, authHandler, projectHandler, cfg)
 
 	log.Printf("Starting backend server on port %s...\n", cfg.Port)
 	if err := router.Run(":" + cfg.Port); err != nil {

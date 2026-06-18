@@ -5,3 +5,4 @@ storage/uploads/*
 storage/metadata/*
 !storage/uploads/.gitkeep
 !storage/metadata/.gitkeep
+image_issue/
