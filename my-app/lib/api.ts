@@ -5,6 +5,7 @@ export const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://loca
 
 interface UploadApiResponse {
   id: string;
+  project_id: string;
   original_name: string;
   content_type: string;
   size_bytes: number;
@@ -14,6 +15,7 @@ interface UploadApiResponse {
 
 export const toUploadedMedia = (response: UploadApiResponse): UploadedMedia => ({
   id: response.id,
+  projectId: response.project_id,
   originalName: response.original_name,
   contentType: response.content_type,
   sizeBytes: response.size_bytes,
@@ -30,9 +32,10 @@ const getHeaders = (headers: HeadersInit = {}) => {
   };
 };
 
-export const uploadMedia = async (file: File): Promise<UploadedMedia> => {
+export const uploadMedia = async (file: File, projectId: string): Promise<UploadedMedia> => {
   const formData = new FormData();
   formData.append("file", file);
+  formData.append("project_id", projectId);
 
   const response = await fetch(`${API_BASE_URL}/api/uploads`, {
     method: "POST",
@@ -41,12 +44,85 @@ export const uploadMedia = async (file: File): Promise<UploadedMedia> => {
   });
 
   if (!response.ok) {
-    const message = await response.text();
-    throw new Error(message || "Upload failed.");
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.detail || "Upload failed.");
   }
 
   const data = (await response.json()) as UploadApiResponse;
   return toUploadedMedia(data);
+};
+
+export const uploadMediaWithProgress = (
+  file: File,
+  projectId: string,
+  onProgress: (progress: number) => void
+): Promise<UploadedMedia> => {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("project_id", projectId);
+
+    xhr.upload.addEventListener("progress", (event) => {
+      if (event.lengthComputable) {
+        const percentage = Math.round((event.loaded * 100) / event.total);
+        onProgress(percentage);
+      }
+    });
+
+    xhr.addEventListener("load", () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          const data = JSON.parse(xhr.responseText) as UploadApiResponse;
+          resolve(toUploadedMedia(data));
+        } catch (err) {
+          reject(new Error("Failed to parse response from server."));
+        }
+      } else {
+        try {
+          const errorData = JSON.parse(xhr.responseText);
+          reject(new Error(errorData.detail || "Upload failed."));
+        } catch {
+          reject(new Error("Upload failed."));
+        }
+      }
+    });
+
+    xhr.addEventListener("error", () => {
+      reject(new Error("Network error during upload."));
+    });
+
+    xhr.addEventListener("abort", () => {
+      reject(new Error("Upload aborted."));
+    });
+
+    xhr.open("POST", `${API_BASE_URL}/api/uploads`);
+    
+    // Add auth header if present
+    const headers = getHeaders();
+    const authHeaders = headers as Record<string, string>;
+    if (authHeaders.Authorization) {
+      xhr.setRequestHeader("Authorization", authHeaders.Authorization);
+    }
+    
+    xhr.send(formData);
+  });
+};
+
+export const listProjectMedia = async (projectId: string): Promise<UploadedMedia[]> => {
+  const response = await fetch(`${API_BASE_URL}/api/projects/${projectId}/media`, {
+    headers: getHeaders({
+      "Content-Type": "application/json",
+    }),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.detail || "Failed to load project media.");
+  }
+
+  const data = (await response.json()) as UploadApiResponse[];
+  return data.map(toUploadedMedia);
 };
 
 // Project API interface

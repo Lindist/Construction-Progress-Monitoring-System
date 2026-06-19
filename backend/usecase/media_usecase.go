@@ -15,15 +15,16 @@ import (
 )
 
 type MediaUsecase interface {
-	UploadMedia(fileHeader *multipart.FileHeader) (*domain.Video, string, error)
+	UploadMedia(fileHeader *multipart.FileHeader, projectID uuid.UUID) (*domain.MediaFile, string, error)
+	ListProjectMedia(projectID uuid.UUID) ([]domain.MediaFile, error)
 }
 
 type mediaUsecase struct {
-	repo   domain.VideoRepository
+	repo   domain.MediaFileRepository
 	config *config.Config
 }
 
-func NewMediaUsecase(repo domain.VideoRepository, cfg *config.Config) MediaUsecase {
+func NewMediaUsecase(repo domain.MediaFileRepository, cfg *config.Config) MediaUsecase {
 	return &mediaUsecase{
 		repo:   repo,
 		config: cfg,
@@ -32,6 +33,7 @@ func NewMediaUsecase(repo domain.VideoRepository, cfg *config.Config) MediaUseca
 
 type FileMetadata struct {
 	ID           string    `json:"id"`
+	ProjectID    string    `json:"project_id"`
 	OriginalName string    `json:"original_name"`
 	ContentType  string    `json:"content_type"`
 	SizeBytes    int64     `json:"size_bytes"`
@@ -40,7 +42,7 @@ type FileMetadata struct {
 	URL          string    `json:"url"`
 }
 
-func (u *mediaUsecase) UploadMedia(fileHeader *multipart.FileHeader) (*domain.Video, string, error) {
+func (u *mediaUsecase) UploadMedia(fileHeader *multipart.FileHeader, projectID uuid.UUID) (*domain.MediaFile, string, error) {
 	// Ensure directories exist
 	uploadsDir := u.config.UploadsDir()
 	metadataDir := u.config.MetadataDir()
@@ -91,24 +93,26 @@ func (u *mediaUsecase) UploadMedia(fileHeader *multipart.FileHeader) (*domain.Vi
 	now := time.Now().UTC()
 	
 	// Create domain model
-	video := &domain.Video{
-		ID:           fileID,
-		OriginalName: fileHeader.Filename,
-		FilePath:     destPath,
-		ContentType:  fileHeader.Header.Get("Content-Type"),
-		SizeBytes:    sizeBytes,
-		UploadedAt:   now,
+	media := &domain.MediaFile{
+		ID:         fileID,
+		ProjectID:  projectID,
+		FileName:   fileHeader.Filename,
+		FileType:   fileHeader.Header.Get("Content-Type"),
+		FilePath:   destPath,
+		UploadedAt: now,
+		SizeBytes:  sizeBytes,
 	}
 
 	// Create JSON Metadata
 	urlPath := fmt.Sprintf("/uploads/%s", destFilename)
 	metadata := FileMetadata{
 		ID:           fileID.String(),
-		OriginalName: video.OriginalName,
-		ContentType:  video.ContentType,
-		SizeBytes:    video.SizeBytes,
-		UploadedAt:   video.UploadedAt.Format(time.RFC3339),
-		FilePath:     video.FilePath,
+		ProjectID:    projectID.String(),
+		OriginalName: media.FileName,
+		ContentType:  media.FileType,
+		SizeBytes:    media.SizeBytes,
+		UploadedAt:   media.UploadedAt.Format(time.RFC3339),
+		FilePath:     media.FilePath,
 		URL:          urlPath,
 	}
 
@@ -123,9 +127,14 @@ func (u *mediaUsecase) UploadMedia(fileHeader *multipart.FileHeader) (*domain.Vi
 	}
 
 	// Save to DB
-	if err := u.repo.Create(video); err != nil {
-		return nil, "", fmt.Errorf("failed to save video in database: %w", err)
+	if err := u.repo.Create(media); err != nil {
+		return nil, "", fmt.Errorf("failed to save media file in database: %w", err)
 	}
 
-	return video, urlPath, nil
+	return media, urlPath, nil
 }
+
+func (u *mediaUsecase) ListProjectMedia(projectID uuid.UUID) ([]domain.MediaFile, error) {
+	return u.repo.FindByProjectID(projectID)
+}
+

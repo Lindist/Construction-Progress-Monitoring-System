@@ -53,6 +53,7 @@ export default function ProjectsPage() {
       updateProject(id, params),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["projects"] });
+      setIsNewProjectModalOpen(false);
       setEditingProject(null);
       setName("");
       setDescription("");

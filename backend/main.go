@@ -33,7 +33,7 @@ func main() {
 		log.Printf("Warning: failed to connect to database: %v. Database functionality will be unavailable.\n", err)
 	} else {
 		log.Println("Database connection successful. Running auto-migrations...")
-		err = db.AutoMigrate(&domain.User{}, &domain.Project{}, &domain.Video{})
+		err = db.AutoMigrate(&domain.User{}, &domain.Project{}, &domain.MediaFile{})
 		if err != nil {
 			log.Printf("Warning: auto-migration failed: %v\n", err)
 		}
@@ -41,11 +41,11 @@ func main() {
 
 	userRepo := repository.NewPostgresUserRepository(db)
 	projectRepo := repository.NewPostgresProjectRepository(db)
-	videoRepo := repository.NewPostgresVideoRepository(db)
+	mediaRepo := repository.NewPostgresMediaFileRepository(db)
 
 	authUsecase := usecase.NewAuthUsecase(userRepo)
 	projectUsecase := usecase.NewProjectUsecase(projectRepo)
-	mediaUsecase := usecase.NewMediaUsecase(videoRepo, cfg)
+	mediaUsecase := usecase.NewMediaUsecase(mediaRepo, cfg)
 
 	authHandler := delivery.NewAuthHandler(authUsecase)
 	projectHandler := delivery.NewProjectHandler(projectUsecase)

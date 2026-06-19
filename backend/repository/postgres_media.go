@@ -7,38 +7,48 @@ import (
 	"gorm.io/gorm"
 )
 
-type postgresVideoRepository struct {
+type postgresMediaFileRepository struct {
 	db *gorm.DB
 }
 
-func NewPostgresVideoRepository(db *gorm.DB) domain.VideoRepository {
-	return &postgresVideoRepository{db: db}
+func NewPostgresMediaFileRepository(db *gorm.DB) domain.MediaFileRepository {
+	return &postgresMediaFileRepository{db: db}
 }
 
-func (r *postgresVideoRepository) Create(video *domain.Video) error {
+func (r *postgresMediaFileRepository) Create(media *domain.MediaFile) error {
 	if r.db == nil {
 		return nil // skip DB write to match Python backend behavior when db is offline
 	}
-	return r.db.Create(video).Error
+	return r.db.Create(media).Error
 }
 
-func (r *postgresVideoRepository) FindByID(id uuid.UUID) (*domain.Video, error) {
+func (r *postgresMediaFileRepository) FindByID(id uuid.UUID) (*domain.MediaFile, error) {
 	if r.db == nil {
 		return nil, gorm.ErrRecordNotFound
 	}
-	var video domain.Video
-	err := r.db.First(&video, "id = ?", id).Error
+	var media domain.MediaFile
+	err := r.db.First(&media, "id = ?", id).Error
 	if err != nil {
 		return nil, err
 	}
-	return &video, nil
+	return &media, nil
 }
 
-func (r *postgresVideoRepository) FindAll() ([]domain.Video, error) {
+func (r *postgresMediaFileRepository) FindAll() ([]domain.MediaFile, error) {
 	if r.db == nil {
-		return []domain.Video{}, nil
+		return []domain.MediaFile{}, nil
 	}
-	var videos []domain.Video
-	err := r.db.Find(&videos).Error
-	return videos, err
+	var mediaFiles []domain.MediaFile
+	err := r.db.Find(&mediaFiles).Error
+	return mediaFiles, err
 }
+
+func (r *postgresMediaFileRepository) FindByProjectID(projectID uuid.UUID) ([]domain.MediaFile, error) {
+	if r.db == nil {
+		return []domain.MediaFile{}, nil
+	}
+	var mediaFiles []domain.MediaFile
+	err := r.db.Where("project_id = ?", projectID).Find(&mediaFiles).Error
+	return mediaFiles, err
+}
+

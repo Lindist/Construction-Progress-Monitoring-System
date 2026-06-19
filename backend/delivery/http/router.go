@@ -66,6 +66,7 @@ func SetupRouter(handler *Handler, authHandler *AuthHandler, projectHandler *Pro
 			projects.GET("/:id", projectHandler.GetByID)
 			projects.PUT("/:id", projectHandler.Update)
 			projects.DELETE("/:id", projectHandler.Delete)
+			projects.GET("/:id/media", handler.ListProjectMedia)
 		}
 	}
 

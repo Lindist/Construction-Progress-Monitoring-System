@@ -3,10 +3,13 @@ package http
 import (
 	"backend/config"
 	"backend/usecase"
+	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
@@ -70,6 +73,23 @@ var allowedContentTypes = map[string]bool{
 }
 
 func (h *Handler) UploadMedia(c *gin.Context) {
+	// Retrieve project_id from form body or query params
+	projectIDStr := c.PostForm("project_id")
+	if projectIDStr == "" {
+		projectIDStr = c.Query("project_id")
+	}
+
+	if projectIDStr == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"detail": "project_id is required."})
+		return
+	}
+
+	projectID, err := uuid.Parse(projectIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"detail": "Invalid project_id UUID format."})
+		return
+	}
+
 	file, err := c.FormFile("file")
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"detail": "No file uploaded."})
@@ -82,18 +102,55 @@ func (h *Handler) UploadMedia(c *gin.Context) {
 		return
 	}
 
-	video, urlPath, err := h.mediaUsecase.UploadMedia(file)
+	media, urlPath, err := h.mediaUsecase.UploadMedia(file, projectID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"detail": err.Error()})
 		return
 	}
 
 	c.JSON(http.StatusCreated, UploadResponse{
-		ID:           video.ID.String(),
-		OriginalName: video.OriginalName,
-		ContentType:  video.ContentType,
-		SizeBytes:    video.SizeBytes,
-		UploadedAt:   video.UploadedAt.Format("2006-01-02T15:04:05.999Z07:00"),
+		ID:           media.ID.String(),
+		OriginalName: media.FileName,
+		ContentType:  media.FileType,
+		SizeBytes:    media.SizeBytes,
+		UploadedAt:   media.UploadedAt.Format("2006-01-02T15:04:05.999Z07:00"),
 		URL:          urlPath,
 	})
 }
+
+func (h *Handler) ListProjectMedia(c *gin.Context) {
+	projectIDStr := c.Param("id")
+	projectID, err := uuid.Parse(projectIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"detail": "Invalid project ID"})
+		return
+	}
+
+	mediaFiles, err := h.mediaUsecase.ListProjectMedia(projectID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"detail": err.Error()})
+		return
+	}
+
+	responses := make([]UploadResponse, len(mediaFiles))
+	for i, m := range mediaFiles {
+		var sizeBytes int64
+		// Dynamically read size from disk if possible
+		if stat, err := os.Stat(m.FilePath); err == nil {
+			sizeBytes = stat.Size()
+		}
+
+		urlPath := fmt.Sprintf("/uploads/%s", filepath.Base(m.FilePath))
+		responses[i] = UploadResponse{
+			ID:           m.ID.String(),
+			OriginalName: m.FileName,
+			ContentType:  m.FileType,
+			SizeBytes:    sizeBytes,
+			UploadedAt:   m.UploadedAt.Format("2006-01-02T15:04:05.999Z07:00"),
+			URL:          urlPath,
+		}
+	}
+
+	c.JSON(http.StatusOK, responses)
+}
+

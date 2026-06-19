@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import type { ChangeEvent } from "react";
-import { uploadMedia } from "@/lib/api";
+import { useEffect, useMemo, useState, Suspense } from "react";
+import type { ChangeEvent, DragEvent } from "react";
+import { uploadMediaWithProgress, listProjects, Project } from "@/lib/api";
 import type { UploadedMedia } from "@/types/media";
+import { useSearchParams } from "next/navigation";
+import { Loader2, UploadCloud, Film, Image, CheckCircle, AlertCircle } from "lucide-react";
 
 const acceptedTypes = ["video/mp4", "video/quicktime", "video/webm", "image/jpeg", "image/png", "image/webp"];
 
@@ -18,11 +20,48 @@ const formatBytes = (bytes: number): string => {
   return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[unitIndex]}`;
 };
 
-export const MediaUploader = () => {
+const MediaUploaderInner = () => {
+  const searchParams = useSearchParams();
+  const urlProjectId = searchParams.get("projectId") ?? "";
+
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploadedMedia, setUploadedMedia] = useState<UploadedMedia | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  
+  // Drag and Drop State
+  const [isDragging, setIsDragging] = useState(false);
+  
+  // Upload Progress State
+  const [uploadProgress, setUploadProgress] = useState(0);
+
+  // Project selection states
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState<string>("");
+  const [isLoadingProjects, setIsLoadingProjects] = useState(false);
+
+  // Load project context
+  useEffect(() => {
+    if (urlProjectId) {
+      setSelectedProjectId(urlProjectId);
+    } else {
+      setIsLoadingProjects(true);
+      listProjects()
+        .then((data) => {
+          setProjects(data);
+          if (data.length > 0) {
+            setSelectedProjectId(data[0].id);
+          }
+        })
+        .catch((err) => {
+          console.error("Failed to load projects:", err);
+          setErrorMessage("Failed to load projects. Please create a project first.");
+        })
+        .finally(() => {
+          setIsLoadingProjects(false);
+        });
+    }
+  }, [urlProjectId]);
 
   const previewUrl = useMemo(() => {
     if (!selectedFile) {
@@ -40,10 +79,12 @@ export const MediaUploader = () => {
     };
   }, [previewUrl]);
 
+  // Handle standard file selection
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0] ?? null;
     setUploadedMedia(null);
     setErrorMessage(null);
+    setUploadProgress(0);
 
     if (!file) {
       setSelectedFile(null);
@@ -59,16 +100,62 @@ export const MediaUploader = () => {
     setSelectedFile(file);
   };
 
+  // Drag handlers
+  const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(false);
+    setUploadedMedia(null);
+    setErrorMessage(null);
+    setUploadProgress(0);
+
+    const file = e.dataTransfer.files?.[0] ?? null;
+    if (!file) {
+      setSelectedFile(null);
+      return;
+    }
+
+    if (!acceptedTypes.includes(file.type)) {
+      setSelectedFile(null);
+      setErrorMessage("Please choose an MP4, MOV, WebM, JPG, PNG, or WebP file.");
+      return;
+    }
+
+    setSelectedFile(file);
+  };
+
+  // Perform progress upload
   const handleUpload = async () => {
     if (!selectedFile) {
       return;
     }
 
+    if (!selectedProjectId) {
+      setErrorMessage("Please select a target project before uploading.");
+      return;
+    }
+
     setIsUploading(true);
     setErrorMessage(null);
+    setUploadProgress(0);
 
     try {
-      const media = await uploadMedia(selectedFile);
+      const media = await uploadMediaWithProgress(
+        selectedFile,
+        selectedProjectId,
+        (progress) => {
+          setUploadProgress(progress);
+        }
+      );
       setUploadedMedia(media);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Upload failed.";
@@ -89,32 +176,112 @@ export const MediaUploader = () => {
           Add a construction site video or image to start the monitoring pipeline.
         </p>
 
-        <label className="mt-6 flex min-h-44 cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-primary bg-panel-strong px-4 text-center transition hover:bg-[#e6f1f6]">
-          <span className="text-sm font-semibold text-primary">Select video or image</span>
-          <span className="mt-2 text-xs text-muted">MP4, MOV, WebM, JPG, PNG, WebP</span>
-          <input className="sr-only" type="file" accept="video/*,image/*" onChange={handleFileChange} />
-        </label>
+        {/* Project Selector (If no projectId in query params) */}
+        {!urlProjectId && (
+          <div className="mt-5">
+            <label className="block text-xs font-semibold uppercase tracking-wider text-muted">Target Project</label>
+            {isLoadingProjects ? (
+              <div className="mt-2 flex items-center gap-2 text-sm text-muted">
+                <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                <span>Fetching projects...</span>
+              </div>
+            ) : projects.length === 0 ? (
+              <div className="mt-2 flex items-center gap-2 rounded-md border border-danger/30 bg-danger/5 px-3 py-2 text-xs text-danger">
+                <AlertCircle className="h-4 w-4" />
+                <span>No projects found. Please create a project first.</span>
+              </div>
+            ) : (
+              <select
+                value={selectedProjectId}
+                onChange={(e) => setSelectedProjectId(e.target.value)}
+                disabled={isUploading}
+                className="mt-2 w-full rounded-md border border-border bg-background px-3 py-2.5 text-sm text-foreground outline-none focus:border-primary disabled:opacity-50"
+              >
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+        )}
+
+        {/* Drag and Drop Upload Area */}
+        <div
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          className={`mt-6 flex min-h-48 cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed px-4 text-center transition ${
+            isDragging
+              ? "border-primary bg-primary/5 text-primary scale-[0.99]"
+              : "border-border bg-panel-strong hover:bg-border/20 text-muted"
+          }`}
+        >
+          <label className="flex h-full w-full cursor-pointer flex-col items-center justify-center py-6">
+            <UploadCloud className={`h-10 w-10 transition ${isDragging ? "text-primary animate-bounce" : "text-muted/80"}`} />
+            <span className="mt-3 text-sm font-semibold text-foreground">
+              {isDragging ? "Drop your file here" : "Select or drag video or image"}
+            </span>
+            <span className="mt-1 text-xs text-muted">MP4, MOV, WebM, JPG, PNG, WebP</span>
+            <input
+              className="sr-only"
+              type="file"
+              accept="video/*,image/*"
+              disabled={isUploading}
+              onChange={handleFileChange}
+            />
+          </label>
+        </div>
 
         {selectedFile ? (
-          <div className="mt-5 rounded-md bg-background p-4 text-sm">
-            <p className="font-semibold">{selectedFile.name}</p>
-            <p className="mt-1 text-muted">{formatBytes(selectedFile.size)}</p>
+          <div className="mt-5 flex items-center gap-3 rounded-md bg-background p-4 text-sm border border-border">
+            {selectedFile.type.startsWith("video/") ? (
+              <Film className="h-5 w-5 text-primary shrink-0" />
+            ) : (
+              <Image className="h-5 w-5 text-primary shrink-0" />
+            )}
+            <div className="min-w-0 flex-1">
+              <p className="font-semibold truncate text-foreground">{selectedFile.name}</p>
+              <p className="mt-0.5 text-xs text-muted">{formatBytes(selectedFile.size)}</p>
+            </div>
           </div>
         ) : null}
 
+        {/* Error Notification */}
         {errorMessage ? (
-          <p className="mt-4 rounded-md border border-danger bg-[#fff1f0] px-4 py-3 text-sm text-danger">
-            {errorMessage}
-          </p>
+          <div className="mt-4 flex gap-2.5 rounded-md border border-danger/35 bg-danger/5 px-4 py-3 text-sm text-danger">
+            <AlertCircle className="h-5 w-5 shrink-0" />
+            <span>{errorMessage}</span>
+          </div>
         ) : null}
+
+        {/* Progress bar */}
+        {isUploading && (
+          <div className="mt-5">
+            <div className="flex items-center justify-between text-xs font-semibold text-muted mb-2">
+              <span className="flex items-center gap-1.5">
+                <Loader2 className="h-3 w-3 animate-spin text-primary" />
+                Uploading...
+              </span>
+              <span>{uploadProgress}%</span>
+            </div>
+            <div className="w-full bg-[#18242b] rounded-full h-2 overflow-hidden">
+              <div
+                className="bg-primary h-full rounded-full transition-all duration-100 ease-out"
+                style={{ width: `${uploadProgress}%` }}
+              />
+            </div>
+          </div>
+        )}
 
         <button
           type="button"
-          disabled={!selectedFile || isUploading}
+          disabled={!selectedFile || isUploading || !selectedProjectId}
           onClick={handleUpload}
-          className="mt-5 inline-flex h-11 w-full items-center justify-center rounded-md bg-primary px-5 text-sm font-semibold text-primary-foreground transition hover:bg-[#105a7c] disabled:cursor-not-allowed disabled:bg-[#9bb9c7]"
+          className="mt-5 inline-flex h-11 w-full items-center justify-center rounded-md bg-primary px-5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-primary/40 disabled:text-primary-foreground/60 cursor-pointer"
         >
-          {isUploading ? "Uploading..." : "Upload to backend"}
+          {isUploading ? "Uploading to workspace..." : "Upload to backend"}
         </button>
       </section>
 
@@ -125,7 +292,8 @@ export const MediaUploader = () => {
             <p className="mt-2 text-sm text-muted">Preview appears before and after upload.</p>
           </div>
           {uploadedMedia ? (
-            <span className="rounded-full bg-[#e8f6ef] px-3 py-1 text-xs font-semibold text-success">
+            <span className="inline-flex items-center gap-1 rounded-full bg-success/10 px-3 py-1 text-xs font-semibold text-success border border-success/20">
+              <CheckCircle className="h-3.5 w-3.5" />
               Saved
             </span>
           ) : null}
@@ -144,13 +312,13 @@ export const MediaUploader = () => {
 
         {uploadedMedia ? (
           <dl className="mt-5 grid gap-3 text-sm sm:grid-cols-2">
-            <div className="rounded-md bg-panel-strong p-3">
-              <dt className="text-muted">File ID</dt>
-              <dd className="mt-1 font-mono text-xs">{uploadedMedia.id}</dd>
+            <div className="rounded-md bg-panel-strong p-3 border border-border/40">
+              <dt className="text-xs font-medium text-muted uppercase tracking-wider">File ID</dt>
+              <dd className="mt-1 font-mono text-xs text-foreground truncate">{uploadedMedia.id}</dd>
             </div>
-            <div className="rounded-md bg-panel-strong p-3">
-              <dt className="text-muted">Uploaded</dt>
-              <dd className="mt-1">{new Date(uploadedMedia.uploadedAt).toLocaleString()}</dd>
+            <div className="rounded-md bg-panel-strong p-3 border border-border/40">
+              <dt className="text-xs font-medium text-muted uppercase tracking-wider">Uploaded At</dt>
+              <dd className="mt-1 text-xs text-foreground">{new Date(uploadedMedia.uploadedAt).toLocaleString()}</dd>
             </div>
           </dl>
         ) : null}
@@ -158,3 +326,16 @@ export const MediaUploader = () => {
     </div>
   );
 };
+
+export const MediaUploader = () => {
+  return (
+    <Suspense fallback={
+      <div className="flex h-64 items-center justify-center rounded-lg border border-border bg-panel">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    }>
+      <MediaUploaderInner />
+    </Suspense>
+  );
+};
+

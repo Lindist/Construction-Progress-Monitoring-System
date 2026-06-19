@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { MediaUploader } from "@/components/shared/MediaUploader";
+import { Suspense } from "react";
 
 export default function UploadPage() {
   return (
@@ -18,7 +19,13 @@ export default function UploadPage() {
         </div>
       </header>
       <div className="mx-auto w-full max-w-7xl px-5 py-8 md:px-8">
-        <MediaUploader />
+        <Suspense fallback={
+          <div className="flex h-64 items-center justify-center rounded-lg border border-border bg-panel">
+            <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+          </div>
+        }>
+          <MediaUploader />
+        </Suspense>
       </div>
     </main>
   );
