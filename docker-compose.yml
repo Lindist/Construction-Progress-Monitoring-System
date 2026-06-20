@@ -41,6 +41,7 @@ services:
       - DATABASE_URL=postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@postgres:5432/${DB_NAME:-construction_progress}?sslmode=disable
       - STORAGE_ROOT=/storage
       - CORS_ORIGINS=http://localhost:3000,http://localhost:3001
+      - AI_SERVICE_URL=http://ai-service:8001
     volumes:
       - ./storage:/storage
     depends_on:

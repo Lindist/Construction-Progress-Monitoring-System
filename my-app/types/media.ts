@@ -6,4 +6,6 @@ export interface UploadedMedia {
   sizeBytes: number;
   uploadedAt: string;
   url: string;
+  thumbnailUrl?: string;
+  timelineUrl?: string;
 }

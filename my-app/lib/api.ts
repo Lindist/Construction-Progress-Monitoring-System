@@ -11,6 +11,8 @@ interface UploadApiResponse {
   size_bytes: number;
   uploaded_at: string;
   url: string;
+  thumbnail_url?: string;
+  timeline_url?: string;
 }
 
 export const toUploadedMedia = (response: UploadApiResponse): UploadedMedia => ({
@@ -21,6 +23,8 @@ export const toUploadedMedia = (response: UploadApiResponse): UploadedMedia => (
   sizeBytes: response.size_bytes,
   uploadedAt: response.uploaded_at,
   url: `${API_BASE_URL}${response.url}`,
+  thumbnailUrl: response.thumbnail_url ? `${API_BASE_URL}${response.thumbnail_url}` : undefined,
+  timelineUrl: response.timeline_url ? `${API_BASE_URL}${response.timeline_url}` : undefined,
 });
 
 // Helper for authenticated requests
@@ -123,6 +127,34 @@ export const listProjectMedia = async (projectId: string): Promise<UploadedMedia
 
   const data = (await response.json()) as UploadApiResponse[];
   return data.map(toUploadedMedia);
+};
+
+export interface VideoFrame {
+  id: string;
+  mediaId: string;
+  timestamp: number;
+  frameUrl: string;
+}
+
+export const listMediaFrames = async (mediaId: string): Promise<VideoFrame[]> => {
+  const response = await fetch(`${API_BASE_URL}/api/media/${mediaId}/frames`, {
+    headers: getHeaders({
+      "Content-Type": "application/json",
+    }),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.detail || "Failed to load media frames.");
+  }
+
+  const data = (await response.json()) as any[];
+  return data.map((f) => ({
+    id: f.id,
+    mediaId: f.media_id,
+    timestamp: f.timestamp,
+    frameUrl: `${API_BASE_URL}${f.frame_url}`,
+  }));
 };
 
 // Project API interface

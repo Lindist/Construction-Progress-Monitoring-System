@@ -33,7 +33,7 @@ func main() {
 		log.Printf("Warning: failed to connect to database: %v. Database functionality will be unavailable.\n", err)
 	} else {
 		log.Println("Database connection successful. Running auto-migrations...")
-		err = db.AutoMigrate(&domain.User{}, &domain.Project{}, &domain.MediaFile{})
+		err = db.AutoMigrate(&domain.User{}, &domain.Project{}, &domain.MediaFile{}, &domain.Frame{})
 		if err != nil {
 			log.Printf("Warning: auto-migration failed: %v\n", err)
 		}
@@ -42,14 +42,19 @@ func main() {
 	userRepo := repository.NewPostgresUserRepository(db)
 	projectRepo := repository.NewPostgresProjectRepository(db)
 	mediaRepo := repository.NewPostgresMediaFileRepository(db)
+	frameRepo := repository.NewPostgresFrameRepository(db)
+
+	broker := delivery.NewEventBroker()
 
 	authUsecase := usecase.NewAuthUsecase(userRepo)
 	projectUsecase := usecase.NewProjectUsecase(projectRepo)
-	mediaUsecase := usecase.NewMediaUsecase(mediaRepo, cfg)
+	mediaUsecase := usecase.NewMediaUsecase(mediaRepo, frameRepo, cfg, func(mediaID string) {
+		broker.Notifier <- mediaID
+	})
 
 	authHandler := delivery.NewAuthHandler(authUsecase)
 	projectHandler := delivery.NewProjectHandler(projectUsecase)
-	handler := delivery.NewHandler(mediaUsecase, cfg, db)
+	handler := delivery.NewHandler(mediaUsecase, cfg, db, broker)
 	router := delivery.SetupRouter(handler, authHandler, projectHandler, cfg)
 
 	log.Printf("Starting backend server on port %s...\n", cfg.Port)

@@ -1,14 +1,18 @@
 package usecase
 
 import (
+	"bytes"
 	"backend/config"
 	"backend/domain"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"mime/multipart"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -17,17 +21,23 @@ import (
 type MediaUsecase interface {
 	UploadMedia(fileHeader *multipart.FileHeader, projectID uuid.UUID) (*domain.MediaFile, string, error)
 	ListProjectMedia(projectID uuid.UUID) ([]domain.MediaFile, error)
+	GetMediaFrames(mediaID uuid.UUID) ([]domain.Frame, error)
+	ProcessVideo(mediaID uuid.UUID, filePath string) error
 }
 
 type mediaUsecase struct {
-	repo   domain.MediaFileRepository
-	config *config.Config
+	repo              domain.MediaFileRepository
+	frameRepo         domain.FrameRepository
+	config            *config.Config
+	onProcessComplete func(mediaID string)
 }
 
-func NewMediaUsecase(repo domain.MediaFileRepository, cfg *config.Config) MediaUsecase {
+func NewMediaUsecase(repo domain.MediaFileRepository, frameRepo domain.FrameRepository, cfg *config.Config, onProcessComplete func(mediaID string)) MediaUsecase {
 	return &mediaUsecase{
-		repo:   repo,
-		config: cfg,
+		repo:              repo,
+		frameRepo:         frameRepo,
+		config:            cfg,
+		onProcessComplete: onProcessComplete,
 	}
 }
 
@@ -40,6 +50,21 @@ type FileMetadata struct {
 	UploadedAt   string    `json:"uploaded_at"`
 	FilePath     string    `json:"file_path"`
 	URL          string    `json:"url"`
+}
+
+type ProcessRequest struct {
+	MediaID  string `json:"media_id"`
+	FilePath string `json:"file_path"`
+}
+
+type ProcessResponseFrame struct {
+	Timestamp float64 `json:"timestamp"`
+	FramePath string  `json:"frame_path"`
+}
+
+type ProcessResponse struct {
+	MediaID string                 `json:"media_id"`
+	Frames  []ProcessResponseFrame `json:"frames"`
 }
 
 func (u *mediaUsecase) UploadMedia(fileHeader *multipart.FileHeader, projectID uuid.UUID) (*domain.MediaFile, string, error) {
@@ -131,6 +156,18 @@ func (u *mediaUsecase) UploadMedia(fileHeader *multipart.FileHeader, projectID u
 		return nil, "", fmt.Errorf("failed to save media file in database: %w", err)
 	}
 
+	// Trigger processing in a background goroutine if it's a video file
+	if strings.HasPrefix(media.FileType, "video/") {
+		go func() {
+			log.Printf("Usecase: Starting background video processing for %s (%s)\n", media.ID, media.FileName)
+			if err := u.ProcessVideo(media.ID, media.FilePath); err != nil {
+				log.Printf("Usecase: Background processing failed for video %s: %v\n", media.ID, err)
+			} else {
+				log.Printf("Usecase: Background processing completed successfully for video %s\n", media.ID)
+			}
+		}()
+	}
+
 	return media, urlPath, nil
 }
 
@@ -138,3 +175,59 @@ func (u *mediaUsecase) ListProjectMedia(projectID uuid.UUID) ([]domain.MediaFile
 	return u.repo.FindByProjectID(projectID)
 }
 
+func (u *mediaUsecase) GetMediaFrames(mediaID uuid.UUID) ([]domain.Frame, error) {
+	return u.frameRepo.FindByMediaID(mediaID)
+}
+
+func (u *mediaUsecase) ProcessVideo(mediaID uuid.UUID, filePath string) error {
+	reqBody := ProcessRequest{
+		MediaID:  mediaID.String(),
+		FilePath: filePath,
+	}
+
+	jsonData, err := json.Marshal(reqBody)
+	if err != nil {
+		return fmt.Errorf("failed to marshal process request: %w", err)
+	}
+
+	url := fmt.Sprintf("%s/api/process", u.config.AIServiceURL)
+	log.Printf("Usecase: Sending video processing request to AI service: %s\n", url)
+
+	resp, err := http.Post(url, "application/json", bytes.NewBuffer(jsonData))
+	if err != nil {
+		return fmt.Errorf("failed to call AI service process endpoint: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("AI service returned non-OK status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var processResp ProcessResponse
+	if err := json.NewDecoder(resp.Body).Decode(&processResp); err != nil {
+		return fmt.Errorf("failed to decode AI service process response: %w", err)
+	}
+
+	log.Printf("Usecase: AI service returned %d frames for video %s. Saving to database...\n", len(processResp.Frames), mediaID)
+
+	for _, f := range processResp.Frames {
+		frame := &domain.Frame{
+			ID:        uuid.New(),
+			MediaID:   mediaID,
+			Timestamp: f.Timestamp,
+			FramePath: f.FramePath,
+		}
+
+		if err := u.frameRepo.Create(frame); err != nil {
+			log.Printf("Usecase: Warning: failed to save frame record at %f seconds in DB: %v\n", f.Timestamp, err)
+		}
+	}
+
+	// Trigger callback to notify clients via SSE
+	if u.onProcessComplete != nil {
+		u.onProcessComplete(mediaID.String())
+	}
+
+	return nil
+}

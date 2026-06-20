@@ -10,11 +10,12 @@ import (
 )
 
 type Config struct {
-	AppName     string
-	Port        string
-	DBConnStr   string
-	StorageRoot string
-	CorsOrigins []string
+	AppName      string
+	Port         string
+	DBConnStr    string
+	StorageRoot  string
+	CorsOrigins  []string
+	AIServiceURL string
 }
 
 func LoadConfig() *Config {
@@ -58,12 +59,18 @@ func LoadConfig() *Config {
 		corsOrigins = []string{"http://localhost:3000", "http://localhost:3001"}
 	}
 
+	aiServiceURL := os.Getenv("AI_SERVICE_URL")
+	if aiServiceURL == "" {
+		aiServiceURL = "http://localhost:8001"
+	}
+
 	return &Config{
-		AppName:     appName,
-		Port:        port,
-		DBConnStr:   dbConnStr,
-		StorageRoot: storageRoot,
-		CorsOrigins: corsOrigins,
+		AppName:      appName,
+		Port:         port,
+		DBConnStr:    dbConnStr,
+		StorageRoot:  storageRoot,
+		CorsOrigins:  corsOrigins,
+		AIServiceURL: aiServiceURL,
 	}
 }
 

@@ -48,6 +48,8 @@ func SetupRouter(handler *Handler, authHandler *AuthHandler, projectHandler *Pro
 	{
 		api.GET("/health", handler.Health)
 		api.POST("/uploads", handler.UploadMedia)
+		api.GET("/media/:id/frames", handler.GetMediaFrames)
+		api.GET("/media/events", handler.MediaEvents)
 
 		// Auth routes
 		auth := api.Group("/auth")

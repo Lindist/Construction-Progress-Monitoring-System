@@ -4,6 +4,7 @@ import (
 	"backend/config"
 	"backend/usecase"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -17,13 +18,15 @@ type Handler struct {
 	mediaUsecase usecase.MediaUsecase
 	config       *config.Config
 	db           *gorm.DB
+	broker       *EventBroker
 }
 
-func NewHandler(mu usecase.MediaUsecase, cfg *config.Config, db *gorm.DB) *Handler {
+func NewHandler(mu usecase.MediaUsecase, cfg *config.Config, db *gorm.DB, broker *EventBroker) *Handler {
 	return &Handler{
 		mediaUsecase: mu,
 		config:       cfg,
 		db:           db,
+		broker:       broker,
 	}
 }
 
@@ -61,6 +64,8 @@ type UploadResponse struct {
 	SizeBytes    int64  `json:"size_bytes"`
 	UploadedAt   string `json:"uploaded_at"`
 	URL          string `json:"url"`
+	ThumbnailURL string `json:"thumbnail_url,omitempty"`
+	TimelineURL  string `json:"timeline_url,omitempty"`
 }
 
 var allowedContentTypes = map[string]bool{
@@ -140,6 +145,19 @@ func (h *Handler) ListProjectMedia(c *gin.Context) {
 			sizeBytes = stat.Size()
 		}
 
+		// Dynamically check if thumbnail/timeline exist
+		thumbnailPath := filepath.Join(h.config.UploadsDir(), "frames", m.ID.String(), "thumbnail.jpg")
+		var thumbnailURL string
+		if _, err := os.Stat(thumbnailPath); err == nil {
+			thumbnailURL = fmt.Sprintf("/uploads/frames/%s/thumbnail.jpg", m.ID.String())
+		}
+
+		timelinePath := filepath.Join(h.config.UploadsDir(), "frames", m.ID.String(), "timeline.jpg")
+		var timelineURL string
+		if _, err := os.Stat(timelinePath); err == nil {
+			timelineURL = fmt.Sprintf("/uploads/frames/%s/timeline.jpg", m.ID.String())
+		}
+
 		urlPath := fmt.Sprintf("/uploads/%s", filepath.Base(m.FilePath))
 		responses[i] = UploadResponse{
 			ID:           m.ID.String(),
@@ -148,9 +166,67 @@ func (h *Handler) ListProjectMedia(c *gin.Context) {
 			SizeBytes:    sizeBytes,
 			UploadedAt:   m.UploadedAt.Format("2006-01-02T15:04:05.999Z07:00"),
 			URL:          urlPath,
+			ThumbnailURL: thumbnailURL,
+			TimelineURL:  timelineURL,
 		}
 	}
 
 	c.JSON(http.StatusOK, responses)
 }
 
+type FrameResponse struct {
+	ID        string  `json:"id"`
+	MediaID   string  `json:"media_id"`
+	Timestamp float64 `json:"timestamp"`
+	FrameURL  string  `json:"frame_url"`
+}
+
+func (h *Handler) GetMediaFrames(c *gin.Context) {
+	mediaIDStr := c.Param("id")
+	mediaID, err := uuid.Parse(mediaIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"detail": "Invalid media ID format."})
+		return
+	}
+
+	frames, err := h.mediaUsecase.GetMediaFrames(mediaID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"detail": err.Error()})
+		return
+	}
+
+	responses := make([]FrameResponse, len(frames))
+	for i, f := range frames {
+		frameURL := fmt.Sprintf("/uploads/frames/%s/%s", mediaID.String(), filepath.Base(f.FramePath))
+		responses[i] = FrameResponse{
+			ID:        f.ID.String(),
+			MediaID:   f.MediaID.String(),
+			Timestamp: f.Timestamp,
+			FrameURL:  frameURL,
+		}
+	}
+
+	c.JSON(http.StatusOK, responses)
+}
+
+func (h *Handler) MediaEvents(c *gin.Context) {
+	v := make(chan string)
+	h.broker.newClients <- v
+	defer func() {
+		h.broker.closingClients <- v
+	}()
+
+	// SSE Headers
+	c.Writer.Header().Set("Content-Type", "text/event-stream")
+	c.Writer.Header().Set("Cache-Control", "no-cache")
+	c.Writer.Header().Set("Connection", "keep-alive")
+	c.Writer.Header().Set("Transfer-Encoding", "chunked")
+
+	c.Stream(func(w io.Writer) bool {
+		if msg, ok := <-v; ok {
+			c.SSEvent("message", msg)
+			return true
+		}
+		return false
+	})
+}
