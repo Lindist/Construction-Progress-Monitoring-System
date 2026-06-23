@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, Suspense } from "react";
 import type { ChangeEvent, DragEvent } from "react";
-import { uploadMediaWithProgress, listProjects, listProjectMedia, listMediaFrames, Project, VideoFrame, API_BASE_URL } from "@/lib/api";
+import { uploadMediaWithProgress, listProjects, listProjectMedia, listMediaFrames, Project, VideoFrame, Detection, API_BASE_URL } from "@/lib/api";
 import type { UploadedMedia } from "@/types/media";
 import { useSearchParams } from "next/navigation";
 import { Loader2, UploadCloud, Film, Image, CheckCircle, AlertCircle, RefreshCw, Eye, EyeOff, Calendar, HardDrive } from "lucide-react";
@@ -48,6 +48,29 @@ const MediaUploaderInner = () => {
   const [expandedMediaId, setExpandedMediaId] = useState<string | null>(null);
   const [mediaFrames, setMediaFrames] = useState<Record<string, VideoFrame[]>>({});
   const [isLoadingFrames, setIsLoadingFrames] = useState(false);
+
+  // Inspector Modal State
+  const [selectedFrame, setSelectedFrame] = useState<VideoFrame | null>(null);
+  const [activeCategoryFilter, setActiveCategoryFilter] = useState<Record<string, boolean>>({
+    Worker: true,
+    Helmet: true,
+    Truck: true,
+    Crane: true,
+    Excavator: true,
+    Scaffolding: true,
+    Pillar: true,
+    Wall: true,
+    "Construction Equipment": true,
+  });
+
+  const getDetectionCounts = (detections?: Detection[]) => {
+    if (!detections) return {};
+    const counts: Record<string, number> = {};
+    detections.forEach(d => {
+      counts[d.objectType] = (counts[d.objectType] || 0) + 1;
+    });
+    return counts;
+  };
 
   // Load project context
   useEffect(() => {
@@ -571,26 +594,63 @@ const MediaUploaderInner = () => {
                             <div className="text-xs text-muted py-2">No frames extracted for this video.</div>
                           ) : (
                             <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
-                              {mediaFrames[media.id]?.map((frame) => (
-                                <div
-                                  key={frame.id}
-                                  className="w-48 shrink-0 bg-panel border border-border/60 hover:border-primary/55 rounded-lg overflow-hidden transition shadow-sm hover:scale-[1.02] duration-200"
-                                >
-                                  <div className="aspect-video relative bg-black/80 flex items-center justify-center overflow-hidden border-b border-border/30">
-                                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                                    <img
-                                      src={frame.frameUrl}
-                                      alt={`Frame at ${frame.timestamp.toFixed(2)}s`}
-                                      className="object-contain w-full h-full"
-                                    />
+                              {mediaFrames[media.id]?.map((frame) => {
+                                const counts = getDetectionCounts(frame.detections);
+                                return (
+                                  <div
+                                    key={frame.id}
+                                    onClick={() => setSelectedFrame(frame)}
+                                    className="w-48 shrink-0 bg-panel border border-border/60 hover:border-primary/55 rounded-lg overflow-hidden transition shadow-sm hover:scale-[1.02] duration-200 cursor-pointer"
+                                  >
+                                    <div className="aspect-video relative bg-black/80 flex items-center justify-center overflow-hidden border-b border-border/30">
+                                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                                      <img
+                                        src={frame.frameUrl}
+                                        alt={`Frame at ${frame.timestamp.toFixed(2)}s`}
+                                        className="object-contain w-full h-full"
+                                      />
+                                    </div>
+                                    <div className="p-2.5 space-y-2">
+                                      <div className="flex justify-between items-center">
+                                        <span className="inline-flex rounded-full bg-primary/10 px-2 py-0.5 text-xs font-bold text-primary">
+                                          {frame.timestamp.toFixed(2)}s
+                                        </span>
+                                        {frame.detections && frame.detections.length > 0 && (
+                                          <span className="text-[10px] text-muted-foreground font-semibold">
+                                            {frame.detections.length} objects
+                                          </span>
+                                        )}
+                                      </div>
+                                      {/* Small badges showing object counts */}
+                                      {frame.detections && frame.detections.length > 0 && (
+                                        <div className="flex flex-wrap gap-1 pt-1 justify-center border-t border-border/20">
+                                          {Object.entries(counts).map(([type, count]) => {
+                                            let emoji = "📦";
+                                            if (type === "Worker") emoji = "👷";
+                                            else if (type === "Helmet") emoji = "🪖";
+                                            else if (type === "Truck") emoji = "🚚";
+                                            else if (type === "Crane") emoji = "🏗️";
+                                            else if (type === "Excavator") emoji = "🚜";
+                                            else if (type === "Scaffolding") emoji = "🪜";
+                                            else if (type === "Pillar") emoji = "🧱";
+                                            else if (type === "Wall") emoji = "🚧";
+                                            else if (type === "Construction Equipment") emoji = "🛠️";
+                                            return (
+                                              <span 
+                                                key={type} 
+                                                className="inline-flex items-center gap-0.5 rounded bg-panel-strong px-1.5 py-0.5 text-[9px] font-medium text-foreground border border-border/30"
+                                                title={`${count} ${type}(s)`}
+                                              >
+                                                {emoji} {count}
+                                              </span>
+                                            );
+                                          })}
+                                        </div>
+                                      )}
+                                    </div>
                                   </div>
-                                  <div className="p-2.5 text-center">
-                                    <span className="inline-flex rounded-full bg-primary/10 px-2 py-0.5 text-xs font-bold text-primary">
-                                      {frame.timestamp.toFixed(2)}s
-                                    </span>
-                                  </div>
-                                </div>
-                              ))}
+                                );
+                              })}
                             </div>
                           )}
                         </div>
@@ -603,11 +663,203 @@ const MediaUploaderInner = () => {
           )}
         </section>
       )}
+      {/* Interactive Frame Inspector Modal */}
+      {selectedFrame && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm p-4 md:p-6 transition-all duration-300">
+          <div className="relative flex flex-col md:flex-row w-full max-w-5xl h-[85vh] bg-panel border border-border rounded-2xl overflow-hidden shadow-2xl">
+            {/* Header info for mobile */}
+            <div className="flex md:hidden items-center justify-between p-4 border-b border-border bg-panel-strong w-full">
+              <div>
+                <h3 className="font-bold text-foreground">Frame Inspector</h3>
+                <p className="text-xs text-muted">Timestamp: {selectedFrame.timestamp.toFixed(2)}s</p>
+              </div>
+              <button 
+                onClick={() => setSelectedFrame(null)}
+                className="p-1 rounded-md hover:bg-border text-muted hover:text-foreground text-sm font-semibold"
+              >
+                Close
+              </button>
+            </div>
+
+            {/* Left: Frame Image Canvas Area */}
+            <div className="relative flex-1 bg-black flex items-center justify-center p-4 overflow-hidden select-none">
+              <div className="relative max-w-full max-h-full aspect-video border border-border/20 rounded-lg overflow-hidden shadow-lg">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={selectedFrame.frameUrl}
+                  alt={`Inspected Frame at ${selectedFrame.timestamp.toFixed(2)}s`}
+                  className="w-full h-full object-contain pointer-events-none"
+                  style={{ maxHeight: "70vh" }}
+                />
+
+                {/* Bounding Box Overlays */}
+                {selectedFrame.detections?.map((det) => {
+                  if (!activeCategoryFilter[det.objectType]) return null;
+
+                  const [xmin, ymin, xmax, ymax] = det.boundingBox;
+                  const left = `${xmin * 100}%`;
+                  const top = `${ymin * 100}%`;
+                  const width = `${(xmax - xmin) * 100}%`;
+                  const height = `${(ymax - ymin) * 100}%`;
+
+                  // Determine class colors
+                  let colorClass = "border-amber-500 text-amber-500 bg-amber-500/10";
+                  if (det.objectType === "Helmet") {
+                    colorClass = "border-green-500 text-green-500 bg-green-500/10";
+                  } else if (det.objectType === "Truck") {
+                    colorClass = "border-blue-500 text-blue-500 bg-blue-500/10";
+                  } else if (det.objectType === "Crane") {
+                    colorClass = "border-purple-500 text-purple-500 bg-purple-500/10";
+                  } else if (det.objectType === "Excavator") {
+                    colorClass = "border-cyan-500 text-cyan-500 bg-cyan-500/10";
+                  } else if (det.objectType === "Scaffolding") {
+                    colorClass = "border-indigo-500 text-indigo-500 bg-indigo-500/10";
+                  } else if (det.objectType === "Pillar") {
+                    colorClass = "border-pink-500 text-pink-500 bg-pink-500/10";
+                  } else if (det.objectType === "Wall") {
+                    colorClass = "border-orange-500 text-orange-500 bg-orange-500/10";
+                  } else if (det.objectType === "Construction Equipment") {
+                    colorClass = "border-teal-500 text-teal-500 bg-teal-500/10";
+                  }
+
+                  return (
+                    <div
+                      key={det.id}
+                      className={`absolute border-2 transition-all duration-200 group/box hover:border-white hover:z-10 cursor-pointer ${colorClass}`}
+                      style={{ left, top, width, height }}
+                    >
+                      {/* Bounding box label */}
+                      <span className="absolute -top-6 left-0 px-1.5 py-0.5 text-[10px] font-bold bg-black/90 text-white rounded border border-inherit shadow whitespace-nowrap opacity-0 group-hover/box:opacity-100 transition-opacity duration-200 pointer-events-none">
+                        {det.objectType} ({(det.confidence * 100).toFixed(0)}%)
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Right: Side Panel Controls */}
+            <div className="w-full md:w-80 bg-panel-strong border-t md:border-t-0 md:border-l border-border p-5 flex flex-col justify-between shrink-0">
+              <div className="space-y-6">
+                <div className="hidden md:flex items-center justify-between">
+                  <div className="text-left">
+                    <h3 className="font-bold text-lg text-foreground">Frame Inspector</h3>
+                    <p className="text-xs text-muted">Keyframe at {selectedFrame.timestamp.toFixed(2)}s</p>
+                  </div>
+                  <button
+                    onClick={() => setSelectedFrame(null)}
+                    className="p-1 rounded hover:bg-border text-muted hover:text-foreground text-sm font-semibold transition"
+                  >
+                    Close
+                  </button>
+                </div>
+
+                <div className="space-y-3">
+                  <h4 className="text-xs font-semibold uppercase tracking-wider text-muted text-left">
+                    Object Detections ({selectedFrame.detections?.length ?? 0})
+                  </h4>
+                  {selectedFrame.detections?.length === 0 ? (
+                    <p className="text-xs text-muted text-left">No objects detected in this frame.</p>
+                  ) : (
+                    <div className="max-h-[35vh] overflow-y-auto space-y-2 pr-1 border border-border/30 rounded-lg p-2 bg-background/50">
+                      {selectedFrame.detections?.map((det) => {
+                        const isViolated = det.objectType === "Worker" && 
+                          !selectedFrame.detections?.some(
+                            (h) => h.objectType === "Helmet" && 
+                            Math.abs(h.boundingBox[0] - det.boundingBox[0]) < 0.15 &&
+                            h.boundingBox[1] < det.boundingBox[1] &&
+                            h.boundingBox[3] < det.boundingBox[3]
+                          );
+                        return (
+                          <div
+                            key={det.id}
+                            className={`flex items-center justify-between p-2 rounded-md border text-xs transition hover:bg-panel ${
+                              isViolated && det.objectType === "Worker" 
+                                ? "bg-danger/5 border-danger/25 text-danger font-semibold" 
+                                : "bg-panel-strong border-border/40 text-foreground"
+                            }`}
+                          >
+                            <span className="font-medium flex items-center gap-1.5">
+                              {det.objectType === "Worker" ? "👷" : 
+                               det.objectType === "Helmet" ? "🪖" : 
+                               det.objectType === "Truck" ? "🚚" : 
+                               det.objectType === "Crane" ? "🏗️" : 
+                               det.objectType === "Excavator" ? "🚜" : 
+                               det.objectType === "Scaffolding" ? "🪜" : 
+                               det.objectType === "Pillar" ? "🧱" : 
+                               det.objectType === "Wall" ? "🚧" : "🛠️"}{" "}
+                              {det.objectType}
+                              {isViolated && det.objectType === "Worker" && (
+                                <span className="ml-1 px-1 rounded bg-danger/10 text-danger text-[9px] font-bold border border-danger/20">
+                                  No Helmet!
+                                </span>
+                              )}
+                            </span>
+                            <span className="font-mono text-muted text-[10px]">
+                              {(det.confidence * 100).toFixed(0)}%
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-3">
+                  <h4 className="text-xs font-semibold uppercase tracking-wider text-muted text-left">
+                    Filter Bounding Boxes
+                  </h4>
+                  <div className="grid grid-cols-2 gap-2">
+                    {Object.keys(activeCategoryFilter).map((category) => {
+                      const hasCount = selectedFrame.detections?.some((d) => d.objectType === category) ?? false;
+                      return (
+                        <button
+                          key={category}
+                          onClick={() =>
+                            setActiveCategoryFilter((prev) => ({
+                              ...prev,
+                              [category]: !prev[category],
+                            }))
+                          }
+                          disabled={!hasCount}
+                          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border text-[11px] font-medium text-left transition disabled:opacity-30 disabled:cursor-not-allowed ${
+                            activeCategoryFilter[category] && hasCount
+                              ? "bg-primary/10 border-primary/40 text-primary"
+                              : "bg-background border-border/40 text-muted"
+                          }`}
+                        >
+                          <span className="h-2 w-2 rounded-full" style={{
+                            backgroundColor: 
+                              category === "Worker" ? "#f59e0b" : 
+                              category === "Helmet" ? "#22c55e" : 
+                              category === "Truck" ? "#3b82f6" : 
+                              category === "Crane" ? "#a855f7" : 
+                              category === "Excavator" ? "#06b6d4" : 
+                              category === "Scaffolding" ? "#6366f1" : 
+                              category === "Pillar" ? "#ec4899" : 
+                              category === "Wall" ? "#f97316" : "#14b8a6"
+                          }} />
+                          <span className="truncate">{category}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-4 border-t border-border/40 text-[10px] text-muted text-left">
+                Tip: Hover over bounding boxes in the frame viewport to reveal details.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
 
 export const MediaUploader = () => {
+
   return (
     <Suspense fallback={
       <div className="flex h-64 items-center justify-center rounded-lg border border-border bg-panel">

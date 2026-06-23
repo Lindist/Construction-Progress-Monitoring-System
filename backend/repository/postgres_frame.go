@@ -27,6 +27,6 @@ func (r *postgresFrameRepository) FindByMediaID(mediaID uuid.UUID) ([]domain.Fra
 		return []domain.Frame{}, nil
 	}
 	var frames []domain.Frame
-	err := r.db.Where("media_id = ?", mediaID).Order("timestamp asc").Find(&frames).Error
+	err := r.db.Preload("Detections").Where("media_id = ?", mediaID).Order("timestamp asc").Find(&frames).Error
 	return frames, err
 }

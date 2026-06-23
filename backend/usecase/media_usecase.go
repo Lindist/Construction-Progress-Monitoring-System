@@ -28,14 +28,16 @@ type MediaUsecase interface {
 type mediaUsecase struct {
 	repo              domain.MediaFileRepository
 	frameRepo         domain.FrameRepository
+	detectionRepo     domain.DetectionRepository
 	config            *config.Config
 	onProcessComplete func(mediaID string)
 }
 
-func NewMediaUsecase(repo domain.MediaFileRepository, frameRepo domain.FrameRepository, cfg *config.Config, onProcessComplete func(mediaID string)) MediaUsecase {
+func NewMediaUsecase(repo domain.MediaFileRepository, frameRepo domain.FrameRepository, detectionRepo domain.DetectionRepository, cfg *config.Config, onProcessComplete func(mediaID string)) MediaUsecase {
 	return &mediaUsecase{
 		repo:              repo,
 		frameRepo:         frameRepo,
+		detectionRepo:     detectionRepo,
 		config:            cfg,
 		onProcessComplete: onProcessComplete,
 	}
@@ -57,9 +59,16 @@ type ProcessRequest struct {
 	FilePath string `json:"file_path"`
 }
 
+type ProcessResponseDetection struct {
+	ObjectType  string    `json:"object_type"`
+	Confidence  float64   `json:"confidence"`
+	BoundingBox []float64 `json:"bounding_box"`
+}
+
 type ProcessResponseFrame struct {
-	Timestamp float64 `json:"timestamp"`
-	FramePath string  `json:"frame_path"`
+	Timestamp  float64                    `json:"timestamp"`
+	FramePath  string                     `json:"frame_path"`
+	Detections []ProcessResponseDetection `json:"detections"`
 }
 
 type ProcessResponse struct {
@@ -221,6 +230,26 @@ func (u *mediaUsecase) ProcessVideo(mediaID uuid.UUID, filePath string) error {
 
 		if err := u.frameRepo.Create(frame); err != nil {
 			log.Printf("Usecase: Warning: failed to save frame record at %f seconds in DB: %v\n", f.Timestamp, err)
+			continue
+		}
+
+		for _, d := range f.Detections {
+			bboxJSON, err := json.Marshal(d.BoundingBox)
+			if err != nil {
+				log.Printf("Usecase: Warning: failed to marshal bounding box %v: %v\n", d.BoundingBox, err)
+				bboxJSON = []byte("[]")
+			}
+
+			det := &domain.Detection{
+				ID:          uuid.New(),
+				FrameID:     frame.ID,
+				ObjectType:  d.ObjectType,
+				Confidence:  d.Confidence,
+				BoundingBox: string(bboxJSON),
+			}
+			if err := u.detectionRepo.Create(det); err != nil {
+				log.Printf("Usecase: Warning: failed to save detection %s in DB: %v\n", d.ObjectType, err)
+			}
 		}
 	}
 

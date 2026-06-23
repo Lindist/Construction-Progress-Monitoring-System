@@ -3,8 +3,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import cv2
 import os
+from detector import ConstructionDetector
+
 
 app = FastAPI(title="Construction Progress AI Service")
+detector = ConstructionDetector()
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -71,10 +75,18 @@ async def process_video(payload: ProcessPayload):
         frame_save_path = os.path.join(output_dir, frame_filename)
         cv2.imwrite(frame_save_path, frame)
         
+        # Run object detection
+        try:
+            frame_detections = detector.detect(frame_save_path, payload.media_id, t)
+        except Exception as e:
+            print(f"Failed to run detection on frame at t={t}: {e}")
+            frame_detections = []
+            
         # Save relative path or absolute path. Let's save absolute path for backend consumption
         frames_list.append({
             "timestamp": t,
-            "frame_path": frame_save_path
+            "frame_path": frame_save_path,
+            "detections": frame_detections
         })
         
         t += payload.interval

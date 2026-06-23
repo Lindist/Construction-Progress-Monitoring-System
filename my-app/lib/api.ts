@@ -129,11 +129,20 @@ export const listProjectMedia = async (projectId: string): Promise<UploadedMedia
   return data.map(toUploadedMedia);
 };
 
+export interface Detection {
+  id: string;
+  frameId: string;
+  objectType: string;
+  confidence: number;
+  boundingBox: number[]; // [xmin, ymin, xmax, ymax]
+}
+
 export interface VideoFrame {
   id: string;
   mediaId: string;
   timestamp: number;
   frameUrl: string;
+  detections?: Detection[];
 }
 
 export const listMediaFrames = async (mediaId: string): Promise<VideoFrame[]> => {
@@ -154,6 +163,21 @@ export const listMediaFrames = async (mediaId: string): Promise<VideoFrame[]> =>
     mediaId: f.media_id,
     timestamp: f.timestamp,
     frameUrl: `${API_BASE_URL}${f.frame_url}`,
+    detections: f.detections ? f.detections.map((d: any) => {
+      let bbox: number[] = [];
+      try {
+        bbox = JSON.parse(d.bounding_box);
+      } catch (err) {
+        console.error("Failed to parse bounding box:", d.bounding_box, err);
+      }
+      return {
+        id: d.id,
+        frameId: d.frame_id,
+        objectType: d.object_type,
+        confidence: d.confidence,
+        boundingBox: bbox,
+      };
+    }) : [],
   }));
 };
 

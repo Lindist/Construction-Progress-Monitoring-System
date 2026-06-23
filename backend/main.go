@@ -33,7 +33,7 @@ func main() {
 		log.Printf("Warning: failed to connect to database: %v. Database functionality will be unavailable.\n", err)
 	} else {
 		log.Println("Database connection successful. Running auto-migrations...")
-		err = db.AutoMigrate(&domain.User{}, &domain.Project{}, &domain.MediaFile{}, &domain.Frame{})
+		err = db.AutoMigrate(&domain.User{}, &domain.Project{}, &domain.MediaFile{}, &domain.Frame{}, &domain.Detection{})
 		if err != nil {
 			log.Printf("Warning: auto-migration failed: %v\n", err)
 		}
@@ -43,12 +43,13 @@ func main() {
 	projectRepo := repository.NewPostgresProjectRepository(db)
 	mediaRepo := repository.NewPostgresMediaFileRepository(db)
 	frameRepo := repository.NewPostgresFrameRepository(db)
+	detectionRepo := repository.NewPostgresDetectionRepository(db)
 
 	broker := delivery.NewEventBroker()
 
 	authUsecase := usecase.NewAuthUsecase(userRepo)
 	projectUsecase := usecase.NewProjectUsecase(projectRepo)
-	mediaUsecase := usecase.NewMediaUsecase(mediaRepo, frameRepo, cfg, func(mediaID string) {
+	mediaUsecase := usecase.NewMediaUsecase(mediaRepo, frameRepo, detectionRepo, cfg, func(mediaID string) {
 		broker.Notifier <- mediaID
 	})
 

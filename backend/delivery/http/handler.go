@@ -174,11 +174,20 @@ func (h *Handler) ListProjectMedia(c *gin.Context) {
 	c.JSON(http.StatusOK, responses)
 }
 
+type DetectionResponse struct {
+	ID          string  `json:"id"`
+	FrameID     string  `json:"frame_id"`
+	ObjectType  string  `json:"object_type"`
+	Confidence  float64 `json:"confidence"`
+	BoundingBox string  `json:"bounding_box"`
+}
+
 type FrameResponse struct {
-	ID        string  `json:"id"`
-	MediaID   string  `json:"media_id"`
-	Timestamp float64 `json:"timestamp"`
-	FrameURL  string  `json:"frame_url"`
+	ID         string              `json:"id"`
+	MediaID    string              `json:"media_id"`
+	Timestamp  float64             `json:"timestamp"`
+	FrameURL   string              `json:"frame_url"`
+	Detections []DetectionResponse `json:"detections"`
 }
 
 func (h *Handler) GetMediaFrames(c *gin.Context) {
@@ -198,11 +207,24 @@ func (h *Handler) GetMediaFrames(c *gin.Context) {
 	responses := make([]FrameResponse, len(frames))
 	for i, f := range frames {
 		frameURL := fmt.Sprintf("/uploads/frames/%s/%s", mediaID.String(), filepath.Base(f.FramePath))
+		
+		detResponses := make([]DetectionResponse, len(f.Detections))
+		for j, d := range f.Detections {
+			detResponses[j] = DetectionResponse{
+				ID:          d.ID.String(),
+				FrameID:     d.FrameID.String(),
+				ObjectType:  d.ObjectType,
+				Confidence:  d.Confidence,
+				BoundingBox: d.BoundingBox,
+			}
+		}
+		
 		responses[i] = FrameResponse{
-			ID:        f.ID.String(),
-			MediaID:   f.MediaID.String(),
-			Timestamp: f.Timestamp,
-			FrameURL:  frameURL,
+			ID:         f.ID.String(),
+			MediaID:    f.MediaID.String(),
+			Timestamp:  f.Timestamp,
+			FrameURL:   frameURL,
+			Detections: detResponses,
 		}
 	}
 
