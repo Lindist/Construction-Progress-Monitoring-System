@@ -46,17 +46,19 @@ func main() {
 	detectionRepo := repository.NewPostgresDetectionRepository(db)
 
 	broker := delivery.NewEventBroker()
-
 	authUsecase := usecase.NewAuthUsecase(userRepo)
 	projectUsecase := usecase.NewProjectUsecase(projectRepo)
 	mediaUsecase := usecase.NewMediaUsecase(mediaRepo, frameRepo, detectionRepo, cfg, func(mediaID string) {
 		broker.Notifier <- mediaID
 	})
+	analysisUsecase := usecase.NewAnalysisUsecase(frameRepo, mediaRepo)
 
 	authHandler := delivery.NewAuthHandler(authUsecase)
 	projectHandler := delivery.NewProjectHandler(projectUsecase)
 	handler := delivery.NewHandler(mediaUsecase, cfg, db, broker)
-	router := delivery.SetupRouter(handler, authHandler, projectHandler, cfg)
+	analysisHandler := delivery.NewAnalysisHandler(analysisUsecase)
+
+	router := delivery.SetupRouter(handler, authHandler, projectHandler, analysisHandler, cfg)
 
 	log.Printf("Starting backend server on port %s...\n", cfg.Port)
 	if err := router.Run(":" + cfg.Port); err != nil {

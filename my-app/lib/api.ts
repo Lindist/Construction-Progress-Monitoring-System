@@ -256,3 +256,72 @@ export const deleteProject = async (id: string): Promise<void> => {
     throw new Error(errorData.detail || "Failed to delete project.");
   }
 };
+
+export interface ObjectCountDiff {
+  object_type: string;
+  count_a: number;
+  count_b: number;
+  difference: number;
+}
+
+export interface AreaChange {
+  object_type: string;
+  area_a: number;
+  area_b: number;
+  difference: number;
+  percent_change: number;
+}
+
+export interface StructuralGrowth {
+  description: string;
+  growth_percentage: number;
+  is_growing: boolean;
+}
+
+export interface NewObject {
+  object_type: string;
+  count: number;
+}
+
+export interface RemovedObject {
+  object_type: string;
+  count: number;
+}
+
+export interface AnalysisResult {
+  media_id_a: string;
+  media_id_b: string;
+  frame_id_a: string;
+  frame_id_b: string;
+  progress_percentage_a: number;
+  progress_percentage_b: number;
+  growth_percentage: number;
+  change_score: number;
+  object_count_diffs: ObjectCountDiff[];
+  area_changes: AreaChange[];
+  structural_growth: StructuralGrowth;
+  new_objects: NewObject[];
+  removed_objects: RemovedObject[];
+}
+
+export const compareProgress = async (
+  mediaIdA: string,
+  mediaIdB: string
+): Promise<AnalysisResult> => {
+  const response = await fetch(
+    `${API_BASE_URL}/api/analysis/compare?media_id_a=${mediaIdA}&media_id_b=${mediaIdB}`,
+    {
+      headers: getHeaders({
+        "Content-Type": "application/json",
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.detail || "Failed to compare construction progress.");
+  }
+
+  return response.json();
+};
+

@@ -22,4 +22,5 @@ func (Frame) TableName() string {
 type FrameRepository interface {
 	Create(frame *Frame) error
 	FindByMediaID(mediaID uuid.UUID) ([]Frame, error)
+	FindByID(id uuid.UUID) (*Frame, error)
 }

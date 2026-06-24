@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, Suspense } from "react";
 import type { ChangeEvent, DragEvent } from "react";
-import { uploadMediaWithProgress, listProjects, listProjectMedia, listMediaFrames, Project, VideoFrame, Detection, API_BASE_URL } from "@/lib/api";
+import { uploadMediaWithProgress, listProjects, listProjectMedia, listMediaFrames, compareProgress, Project, VideoFrame, Detection, API_BASE_URL } from "@/lib/api";
 import type { UploadedMedia } from "@/types/media";
 import { useSearchParams } from "next/navigation";
 import { Loader2, UploadCloud, Film, Image, CheckCircle, AlertCircle, RefreshCw, Eye, EyeOff, Calendar, HardDrive } from "lucide-react";
@@ -62,6 +62,32 @@ const MediaUploaderInner = () => {
     Wall: true,
     "Construction Equipment": true,
   });
+
+  // Comparison State
+  const [compareMediaIdA, setCompareMediaIdA] = useState<string>("");
+  const [compareMediaIdB, setCompareMediaIdB] = useState<string>("");
+  const [analysisResult, setAnalysisResult] = useState<any | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
+
+  const handleCompare = async () => {
+    if (!compareMediaIdA || !compareMediaIdB) {
+      setAnalysisError("Please select both media files to compare.");
+      return;
+    }
+    setIsAnalyzing(true);
+    setAnalysisError(null);
+    setAnalysisResult(null);
+    try {
+      const data = await compareProgress(compareMediaIdA, compareMediaIdB);
+      setAnalysisResult(data);
+    } catch (err: any) {
+      console.error("Comparison failed:", err);
+      setAnalysisError(err.message || "Failed to compare construction progress.");
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
 
   const getDetectionCounts = (detections?: Detection[]) => {
     if (!detections) return {};
@@ -853,6 +879,241 @@ const MediaUploaderInner = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Progress Comparison & Analysis Dashboard */}
+      {selectedProjectId && projectMedia.length >= 2 && (
+        <section className="rounded-lg border border-border bg-panel p-6 shadow-sm">
+          <div className="border-b border-border pb-4 text-left">
+            <h2 className="text-2xl font-semibold tracking-tight text-foreground">Construction Progress Analysis</h2>
+            <p className="text-sm text-muted mt-1">Compare two media uploads to evaluate layout structural growth, changes, and object differences</p>
+          </div>
+
+          <div className="mt-6 grid gap-6 md:grid-cols-2 lg:grid-cols-[1fr_1fr_auto] items-end bg-panel-strong p-5 rounded-xl border border-border/40">
+            <div className="text-left">
+              <label className="block text-xs font-semibold uppercase tracking-wider text-muted mb-2">Base State (Date A - Before)</label>
+              <select
+                value={compareMediaIdA}
+                onChange={(e) => setCompareMediaIdA(e.target.value)}
+                disabled={isAnalyzing}
+                className="w-full rounded-md border border-border bg-background px-3 py-2.5 text-sm text-foreground outline-none focus:border-primary disabled:opacity-50"
+              >
+                <option value="">-- Select baseline media --</option>
+                {projectMedia.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.originalName} ({new Date(m.uploadedAt).toLocaleDateString()})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="text-left">
+              <label className="block text-xs font-semibold uppercase tracking-wider text-muted mb-2">Target State (Date B - After)</label>
+              <select
+                value={compareMediaIdB}
+                onChange={(e) => setCompareMediaIdB(e.target.value)}
+                disabled={isAnalyzing}
+                className="w-full rounded-md border border-border bg-background px-3 py-2.5 text-sm text-foreground outline-none focus:border-primary disabled:opacity-50"
+              >
+                <option value="">-- Select progress media --</option>
+                {projectMedia.map((m) => (
+                  <option key={m.id} value={m.id} disabled={m.id === compareMediaIdA}>
+                    {m.originalName} ({new Date(m.uploadedAt).toLocaleDateString()})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <button
+              onClick={handleCompare}
+              disabled={isAnalyzing || !compareMediaIdA || !compareMediaIdB}
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-primary px-6 text-sm font-semibold text-primary-foreground shadow hover:bg-primary/95 disabled:opacity-50 cursor-pointer w-full md:w-auto"
+            >
+              {isAnalyzing ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin animate-spin-slow" />
+                  Running Engine...
+                </>
+              ) : (
+                "Compare Progress"
+              )}
+            </button>
+          </div>
+
+          {analysisError && (
+            <div className="mt-4 flex gap-2.5 rounded-md border border-danger/35 bg-danger/5 px-4 py-3 text-sm text-danger text-left animate-pulse">
+              <AlertCircle className="h-5 w-5 shrink-0" />
+              <span>{analysisError}</span>
+            </div>
+          )}
+
+          {/* Analysis Report Results */}
+          {analysisResult && (
+            <div className="mt-8 space-y-8 text-left transition duration-500">
+              {/* Top Overview Cards */}
+              <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="rounded-xl border border-border bg-panel-strong p-5 text-center shadow-sm">
+                  <span className="text-xs font-semibold text-muted uppercase tracking-wider">Change Score</span>
+                  <div className="mt-2 text-3xl font-extrabold text-primary">
+                    {analysisResult.change_score.toFixed(0)}%
+                  </div>
+                  <p className="mt-1 text-xs text-muted">Overall difference density</p>
+                </div>
+
+                <div className="rounded-xl border border-border bg-panel-strong p-5 text-center shadow-sm">
+                  <span className="text-xs font-semibold text-muted uppercase tracking-wider">Progress Baseline (A)</span>
+                  <div className="mt-2 text-3xl font-extrabold text-foreground">
+                    {analysisResult.progress_percentage_a.toFixed(0)}%
+                  </div>
+                  <p className="mt-1 text-xs text-muted">Initial site status</p>
+                </div>
+
+                <div className="rounded-xl border border-border bg-panel-strong p-5 text-center shadow-sm">
+                  <span className="text-xs font-semibold text-muted uppercase tracking-wider">Progress Target (B)</span>
+                  <div className="mt-2 text-3xl font-extrabold text-foreground">
+                    {analysisResult.progress_percentage_b.toFixed(0)}%
+                  </div>
+                  <p className="mt-1 text-xs text-muted">Latest site status</p>
+                </div>
+
+                <div className="rounded-xl border border-border bg-panel-strong p-5 text-center shadow-sm">
+                  <span className="text-xs font-semibold text-muted uppercase tracking-wider">Net Progress Growth</span>
+                  <div className={`mt-2 text-3xl font-extrabold ${analysisResult.growth_percentage >= 0 ? "text-success" : "text-danger"}`}>
+                    {analysisResult.growth_percentage >= 0 ? "+" : ""}{analysisResult.growth_percentage.toFixed(0)}%
+                  </div>
+                  <p className="mt-1 text-xs text-muted">Structural expansion delta</p>
+                </div>
+              </div>
+
+              {/* Structural Growth Summary Card */}
+              <div className="rounded-xl border border-border bg-panel-strong p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <h3 className="text-base font-semibold text-foreground">Structural Development Review</h3>
+                  <p className="text-sm text-muted">{analysisResult.structural_growth.description}</p>
+                </div>
+                <div className="shrink-0">
+                  <span className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-bold border ${
+                    analysisResult.structural_growth.is_growing 
+                      ? "bg-success/10 border-success/20 text-success" 
+                      : "bg-muted/10 border-border/40 text-muted"
+                  }`}>
+                    {analysisResult.structural_growth.is_growing ? "🏗️ Active Expansion" : "🛑 Steady State"}
+                  </span>
+                </div>
+              </div>
+
+              <div className="grid gap-6 md:grid-cols-2">
+                {/* Object Count Comparison Table */}
+                <div className="rounded-xl border border-border bg-panel-strong p-5">
+                  <h3 className="text-base font-semibold text-foreground mb-4">Object Count Audit</h3>
+                  <div className="overflow-x-auto text-left">
+                    <table className="w-full text-sm border-collapse">
+                      <thead>
+                        <tr className="border-b border-border text-xs text-muted uppercase font-semibold">
+                          <th className="py-2.5">Object Type</th>
+                          <th className="py-2.5 text-center">Baseline (A)</th>
+                          <th className="py-2.5 text-center">Latest (B)</th>
+                          <th className="py-2.5 text-right">Delta</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border/40">
+                        {analysisResult.object_count_diffs.map((diff: any) => {
+                          if (diff.count_a === 0 && diff.count_b === 0) return null;
+                          return (
+                            <tr key={diff.object_type} className="hover:bg-background/20">
+                              <td className="py-2.5 font-medium flex items-center gap-1.5">
+                                {diff.object_type === "Worker" ? "👷" : 
+                                 diff.object_type === "Helmet" ? "🪖" : 
+                                 diff.object_type === "Truck" ? "🚚" : 
+                                 diff.object_type === "Crane" ? "🏗️" : 
+                                 diff.object_type === "Excavator" ? "🚜" : 
+                                 diff.object_type === "Scaffolding" ? "🪜" : 
+                                 diff.object_type === "Pillar" ? "🧱" : 
+                                 diff.object_type === "Wall" ? "🚧" : "🛠️"}{" "}
+                                {diff.object_type}
+                              </td>
+                              <td className="py-2.5 text-center font-mono">{diff.count_a}</td>
+                              <td className="py-2.5 text-center font-mono">{diff.count_b}</td>
+                              <td className={`py-2.5 text-right font-mono font-bold ${
+                                diff.difference > 0 ? "text-success" : 
+                                diff.difference < 0 ? "text-danger" : "text-muted"
+                              }`}>
+                                {diff.difference > 0 ? "+" : ""}{diff.difference}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Spatial Area Changes and New/Removed Logs */}
+                <div className="space-y-6">
+                  <div className="rounded-xl border border-border bg-panel-strong p-5">
+                    <h3 className="text-base font-semibold text-foreground mb-3">Area Coverage Analysis</h3>
+                    <div className="space-y-3">
+                      {analysisResult.area_changes.map((chg: any) => {
+                        if (chg.area_a === 0 && chg.area_b === 0) return null;
+                        const isIncrease = chg.difference > 0;
+                        return (
+                          <div key={chg.object_type} className="flex justify-between items-center text-xs p-2 rounded bg-background/30 border border-border/20">
+                            <span className="font-semibold text-muted">{chg.object_type}</span>
+                            <div className="flex items-center gap-2 font-mono">
+                              <span className="text-muted">A: {(chg.area_a * 100).toFixed(1)}%</span>
+                              <span className="text-muted">→</span>
+                              <span className="text-foreground">B: {(chg.area_b * 100).toFixed(1)}%</span>
+                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                isIncrease ? "bg-success/10 text-success" : "bg-danger/10 text-danger"
+                              }`}>
+                                {isIncrease ? "+" : ""}{chg.percent_change.toFixed(0)}%
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* New and Removed Items Log */}
+                  <div className="grid gap-4 grid-cols-2 text-left">
+                    <div className="rounded-xl border border-border bg-panel-strong p-4">
+                      <h4 className="text-xs font-semibold text-success uppercase tracking-wider mb-2">New Introductions</h4>
+                      {analysisResult.new_objects.length === 0 ? (
+                        <p className="text-xs text-muted">No new categories.</p>
+                      ) : (
+                        <ul className="space-y-1.5 text-xs text-foreground">
+                          {analysisResult.new_objects.map((obj: any) => (
+                            <li key={obj.object_type} className="flex items-center gap-1 truncate">
+                              <span>✨</span>
+                              <span>{obj.object_type} (+{obj.count})</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+
+                    <div className="rounded-xl border border-border bg-panel-strong p-4">
+                      <h4 className="text-xs font-semibold text-danger uppercase tracking-wider mb-2">Removals / Departures</h4>
+                      {analysisResult.removed_objects.length === 0 ? (
+                        <p className="text-xs text-muted">No categories removed.</p>
+                      ) : (
+                        <ul className="space-y-1.5 text-xs text-foreground">
+                          {analysisResult.removed_objects.map((obj: any) => (
+                            <li key={obj.object_type} className="flex items-center gap-1 truncate">
+                              <span>🗑️</span>
+                              <span>{obj.object_type} (-{obj.count})</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </section>
       )}
     </div>
   );

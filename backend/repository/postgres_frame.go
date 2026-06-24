@@ -30,3 +30,15 @@ func (r *postgresFrameRepository) FindByMediaID(mediaID uuid.UUID) ([]domain.Fra
 	err := r.db.Preload("Detections").Where("media_id = ?", mediaID).Order("timestamp asc").Find(&frames).Error
 	return frames, err
 }
+
+func (r *postgresFrameRepository) FindByID(id uuid.UUID) (*domain.Frame, error) {
+	if r.db == nil {
+		return nil, gorm.ErrRecordNotFound
+	}
+	var frame domain.Frame
+	err := r.db.Preload("Detections").First(&frame, "id = ?", id).Error
+	if err != nil {
+		return nil, err
+	}
+	return &frame, nil
+}
