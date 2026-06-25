@@ -16,7 +16,7 @@ export default function Home() {
 
   useEffect(() => {
     if (mounted && (isAuthenticated || token)) {
-      router.push("/projects");
+      router.push("/dashboard");
     }
   }, [mounted, isAuthenticated, token, router]);
 

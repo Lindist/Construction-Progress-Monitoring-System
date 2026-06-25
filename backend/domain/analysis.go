@@ -55,3 +55,45 @@ type AnalysisUsecase interface {
 	CompareMedia(mediaID1, mediaID2 uuid.UUID) (*AnalysisResult, error)
 	CompareFrames(frameID1, frameID2 uuid.UUID) (*AnalysisResult, error)
 }
+
+func CalculateProgress(detections []Detection) float64 {
+	pillars := 0
+	walls := 0
+	hasEquipment := false
+	hasWorkers := false
+
+	for _, d := range detections {
+		switch d.ObjectType {
+		case "Pillar":
+			pillars++
+		case "Wall":
+			walls++
+		case "Crane", "Excavator", "Scaffolding":
+			hasEquipment = true
+		case "Worker":
+			hasWorkers = true
+		}
+	}
+
+	progress := 0.0
+	if hasWorkers {
+		progress += 10.0
+	}
+	progress += float64(pillars) * 12.0
+	progress += float64(walls) * 18.0
+	if hasEquipment {
+		progress += 10.0
+	}
+
+	if progress > 100.0 {
+		progress = 100.0
+	}
+
+	// Fallback baseline progress if active workers/machinery are on site but no structures completed
+	if progress == 0 && (hasWorkers || hasEquipment) {
+		progress = 15.0
+	}
+
+	return progress
+}
+

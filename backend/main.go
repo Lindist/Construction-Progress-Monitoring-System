@@ -57,8 +57,10 @@ func main() {
 	projectHandler := delivery.NewProjectHandler(projectUsecase)
 	handler := delivery.NewHandler(mediaUsecase, cfg, db, broker)
 	analysisHandler := delivery.NewAnalysisHandler(analysisUsecase)
+	dashboardUsecase := usecase.NewDashboardUsecase(db, projectRepo)
+	dashboardHandler := delivery.NewDashboardHandler(dashboardUsecase)
 
-	router := delivery.SetupRouter(handler, authHandler, projectHandler, analysisHandler, cfg)
+	router := delivery.SetupRouter(handler, authHandler, projectHandler, analysisHandler, dashboardHandler, cfg)
 
 	log.Printf("Starting backend server on port %s...\n", cfg.Port)
 	if err := router.Run(":" + cfg.Port); err != nil {

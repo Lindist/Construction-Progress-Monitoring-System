@@ -6,6 +6,7 @@ export const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://loca
 interface UploadApiResponse {
   id: string;
   project_id: string;
+  project_name?: string;
   original_name: string;
   content_type: string;
   size_bytes: number;
@@ -18,6 +19,7 @@ interface UploadApiResponse {
 export const toUploadedMedia = (response: UploadApiResponse): UploadedMedia => ({
   id: response.id,
   projectId: response.project_id,
+  projectName: response.project_name,
   originalName: response.original_name,
   contentType: response.content_type,
   sizeBytes: response.size_bytes,
@@ -324,4 +326,59 @@ export const compareProgress = async (
 
   return response.json();
 };
+
+export interface ProgressDataPoint {
+  project_id: string;
+  project_name: string;
+  date: string;
+  progress: number;
+}
+
+export interface ActivityDataPoint {
+  date: string;
+  count: number;
+}
+
+export interface DashboardStats {
+  total_projects: number;
+  total_videos: number;
+  total_images: number;
+  total_detections: number;
+  average_progress: number;
+  progress_over_time: ProgressDataPoint[];
+  detection_stats: Record<string, number>;
+  activity_trends: ActivityDataPoint[];
+}
+
+export const getDashboardStats = async (): Promise<DashboardStats> => {
+  const response = await fetch(`${API_BASE_URL}/api/dashboard`, {
+    headers: getHeaders({
+      "Content-Type": "application/json",
+    }),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.detail || "Failed to load dashboard statistics.");
+  }
+
+  return response.json();
+};
+
+export const listAllMedia = async (): Promise<UploadedMedia[]> => {
+  const response = await fetch(`${API_BASE_URL}/api/media`, {
+    headers: getHeaders({
+      "Content-Type": "application/json",
+    }),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.detail || "Failed to load media library.");
+  }
+
+  const data = (await response.json()) as any[];
+  return data.map(toUploadedMedia);
+};
+
 

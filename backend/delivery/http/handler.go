@@ -2,6 +2,7 @@ package http
 
 import (
 	"backend/config"
+	"backend/domain"
 	"backend/usecase"
 	"fmt"
 	"io"
@@ -59,6 +60,8 @@ func (h *Handler) Health(c *gin.Context) {
 
 type UploadResponse struct {
 	ID           string `json:"id"`
+	ProjectID    string `json:"project_id,omitempty"`
+	ProjectName  string `json:"project_name,omitempty"`
 	OriginalName string `json:"original_name"`
 	ContentType  string `json:"content_type"`
 	SizeBytes    int64  `json:"size_bytes"`
@@ -161,6 +164,75 @@ func (h *Handler) ListProjectMedia(c *gin.Context) {
 		urlPath := fmt.Sprintf("/uploads/%s", filepath.Base(m.FilePath))
 		responses[i] = UploadResponse{
 			ID:           m.ID.String(),
+			OriginalName: m.FileName,
+			ContentType:  m.FileType,
+			SizeBytes:    sizeBytes,
+			UploadedAt:   m.UploadedAt.Format("2006-01-02T15:04:05.999Z07:00"),
+			URL:          urlPath,
+			ThumbnailURL: thumbnailURL,
+			TimelineURL:  timelineURL,
+		}
+	}
+
+	c.JSON(http.StatusOK, responses)
+}
+
+func (h *Handler) ListAllMedia(c *gin.Context) {
+	userIDVal, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"detail": "Unauthorized"})
+		return
+	}
+	userID, ok := userIDVal.(uuid.UUID)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"detail": "Unauthorized"})
+		return
+	}
+
+	type mediaWithProject struct {
+		domain.MediaFile
+		ProjectName string `gorm:"column:project_name"`
+	}
+
+	var results []mediaWithProject
+	if h.db != nil {
+		err := h.db.Table("media_files").
+			Select("media_files.*, projects.name as project_name").
+			Joins("JOIN projects ON media_files.project_id = projects.id").
+			Where("projects.owner_id = ?", userID).
+			Order("media_files.uploaded_at DESC").
+			Scan(&results).Error
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"detail": err.Error()})
+			return
+		}
+	}
+
+	responses := make([]UploadResponse, len(results))
+	for i, r := range results {
+		m := r.MediaFile
+		var sizeBytes int64
+		if stat, err := os.Stat(m.FilePath); err == nil {
+			sizeBytes = stat.Size()
+		}
+
+		thumbnailPath := filepath.Join(h.config.UploadsDir(), "frames", m.ID.String(), "thumbnail.jpg")
+		var thumbnailURL string
+		if _, err := os.Stat(thumbnailPath); err == nil {
+			thumbnailURL = fmt.Sprintf("/uploads/frames/%s/thumbnail.jpg", m.ID.String())
+		}
+
+		timelinePath := filepath.Join(h.config.UploadsDir(), "frames", m.ID.String(), "timeline.jpg")
+		var timelineURL string
+		if _, err := os.Stat(timelinePath); err == nil {
+			timelineURL = fmt.Sprintf("/uploads/frames/%s/timeline.jpg", m.ID.String())
+		}
+
+		urlPath := fmt.Sprintf("/uploads/%s", filepath.Base(m.FilePath))
+		responses[i] = UploadResponse{
+			ID:           m.ID.String(),
+			ProjectID:    m.ProjectID.String(),
+			ProjectName:  r.ProjectName,
 			OriginalName: m.FileName,
 			ContentType:  m.FileType,
 			SizeBytes:    sizeBytes,
