@@ -327,6 +327,27 @@ export const compareProgress = async (
   return response.json();
 };
 
+export const compareFrames = async (
+  frameIdA: string,
+  frameIdB: string
+): Promise<AnalysisResult> => {
+  const response = await fetch(
+    `${API_BASE_URL}/api/analysis/compare?frame_id_a=${frameIdA}&frame_id_b=${frameIdB}`,
+    {
+      headers: getHeaders({
+        "Content-Type": "application/json",
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.detail || "Failed to compare keyframes.");
+  }
+
+  return response.json();
+};
+
 export interface ProgressDataPoint {
   project_id: string;
   project_name: string;
