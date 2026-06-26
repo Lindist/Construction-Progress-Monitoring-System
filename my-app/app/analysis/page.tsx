@@ -109,8 +109,7 @@ export default function AnalysisPage() {
         .then((frames) => {
           setFramesB(frames);
           if (frames.length > 0) {
-            const defaultIndex = analysisMode === "intra" && frames.length > 1 ? 1 : 0;
-            setSelectedFrameB(frames[defaultIndex]);
+            setSelectedFrameB(frames[frames.length - 1]);
           } else {
             setSelectedFrameB(null);
           }
@@ -125,48 +124,23 @@ export default function AnalysisPage() {
 
   const handleSelectFrameA = (frame: VideoFrame) => {
     setSelectedFrameA(frame);
-    if (analysisMode === "cross" && framesB.length > 0) {
-      const closest = framesB.reduce((prev, curr) => 
-        Math.abs(curr.timestamp - frame.timestamp) < Math.abs(prev.timestamp - frame.timestamp) ? curr : prev
-      );
-      setSelectedFrameB(closest);
-    }
   };
 
   const handleSelectFrameB = (frame: VideoFrame) => {
     setSelectedFrameB(frame);
-    if (analysisMode === "cross" && framesA.length > 0) {
-      const closest = framesA.reduce((prev, curr) => 
-        Math.abs(curr.timestamp - frame.timestamp) < Math.abs(prev.timestamp - frame.timestamp) ? curr : prev
-      );
-      setSelectedFrameA(closest);
-    }
   };
 
   const handleCompare = async () => {
-    if (analysisMode === "cross") {
-      if (!compareMediaIdA || !compareMediaIdB) {
-        setAnalysisError("Please select both media files to compare.");
-        return;
-      }
-    } else {
-      if (!singleMediaId || !selectedFrameA || !selectedFrameB) {
-        setAnalysisError("Please select a video and two keyframes to compare.");
-        return;
-      }
+    if (!selectedFrameA || !selectedFrameB) {
+      setAnalysisError("Please select two frames/keyframes to compare.");
+      return;
     }
 
     setIsAnalyzing(true);
     setAnalysisError(null);
     setAnalysisResult(null);
     try {
-      let data;
-      if (analysisMode === "cross") {
-        data = await compareProgress(compareMediaIdA, compareMediaIdB);
-      } else {
-        if (!selectedFrameA || !selectedFrameB) throw new Error("Select frames");
-        data = await compareFrames(selectedFrameA.id, selectedFrameB.id);
-      }
+      const data = await compareFrames(selectedFrameA.id, selectedFrameB.id);
       setAnalysisResult(data);
     } catch (err: any) {
       setAnalysisError(err.message || "Failed to compare construction progress.");
@@ -219,7 +193,6 @@ export default function AnalysisPage() {
         selectedFrameB={selectedFrameB}
         setSelectedFrameB={setSelectedFrameB}
         isAnalyzing={isAnalyzing}
-        handleCompare={handleCompare}
         setAnalysisResult={setAnalysisResult}
         setAnalysisError={setAnalysisError}
       />
@@ -250,6 +223,8 @@ export default function AnalysisPage() {
           handleSelectFrameA={handleSelectFrameA}
           handleSelectFrameB={handleSelectFrameB}
           analysisMode={analysisMode}
+          isAnalyzing={isAnalyzing}
+          handleCompare={handleCompare}
         />
       )}
 

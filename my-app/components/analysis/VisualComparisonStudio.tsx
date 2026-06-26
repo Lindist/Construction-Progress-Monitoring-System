@@ -34,6 +34,8 @@ interface VisualComparisonStudioProps {
   handleSelectFrameA: (frame: VideoFrame) => void;
   handleSelectFrameB: (frame: VideoFrame) => void;
   analysisMode: "cross" | "intra";
+  isAnalyzing: boolean;
+  handleCompare: () => void;
 }
 
 export default function VisualComparisonStudio({
@@ -54,6 +56,8 @@ export default function VisualComparisonStudio({
   handleSelectFrameA,
   handleSelectFrameB,
   analysisMode,
+  isAnalyzing,
+  handleCompare,
 }: VisualComparisonStudioProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [sliderPosition, setSliderPosition] = useState(50);
@@ -498,6 +502,24 @@ export default function VisualComparisonStudio({
               ))}
             </div>
           )}
+        </div>
+
+        {/* Action compare button - moved below timelines */}
+        <div className="flex justify-end pt-4 border-t border-border/40">
+          <button
+            onClick={handleCompare}
+            disabled={isAnalyzing || !selectedFrameA || !selectedFrameB}
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-6 text-sm font-semibold text-primary-foreground shadow hover:bg-primary/95 disabled:opacity-50 cursor-pointer transition shrink-0"
+          >
+            {isAnalyzing ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Comparing...
+              </>
+            ) : (
+              "Compare Frames"
+            )}
+          </button>
         </div>
       </div>
     </div>
