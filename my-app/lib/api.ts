@@ -402,4 +402,50 @@ export const listAllMedia = async (): Promise<UploadedMedia[]> => {
   return data.map(toUploadedMedia);
 };
 
+export interface ProgressReport {
+  id: string;
+  project_id: string;
+  report_type: string;
+  summary: string;
+  progress_percentage: number;
+  generated_at: string;
+}
+
+export const listProjectReports = async (projectId: string): Promise<ProgressReport[]> => {
+  const response = await fetch(`${API_BASE_URL}/api/projects/${projectId}/reports`, {
+    headers: getHeaders({
+      "Content-Type": "application/json",
+    }),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.detail || "Failed to load progress reports.");
+  }
+
+  return response.json();
+};
+
+export const generateProjectReport = async (
+  projectId: string,
+  reportType: "daily" | "weekly" | "monthly"
+): Promise<ProgressReport> => {
+  const response = await fetch(
+    `${API_BASE_URL}/api/projects/${projectId}/reports/generate?type=${reportType}`,
+    {
+      method: "POST",
+      headers: getHeaders({
+        "Content-Type": "application/json",
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.detail || "Failed to generate progress report.");
+  }
+
+  return response.json();
+};
+
 

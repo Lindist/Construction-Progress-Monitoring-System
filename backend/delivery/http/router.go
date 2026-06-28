@@ -34,7 +34,7 @@ func CORSMiddleware(allowedOrigins []string) gin.HandlerFunc {
 	}
 }
 
-func SetupRouter(handler *Handler, authHandler *AuthHandler, projectHandler *ProjectHandler, analysisHandler *AnalysisHandler, dashboardHandler *DashboardHandler, cfg *config.Config) *gin.Engine {
+func SetupRouter(handler *Handler, authHandler *AuthHandler, projectHandler *ProjectHandler, analysisHandler *AnalysisHandler, dashboardHandler *DashboardHandler, reportHandler *ReportHandler, cfg *config.Config) *gin.Engine {
 	r := gin.Default()
 
 	// CORS Middleware
@@ -72,6 +72,8 @@ func SetupRouter(handler *Handler, authHandler *AuthHandler, projectHandler *Pro
 			projects.PUT("/:id", projectHandler.Update)
 			projects.DELETE("/:id", projectHandler.Delete)
 			projects.GET("/:id/media", handler.ListProjectMedia)
+			projects.GET("/:id/reports", reportHandler.List)
+			projects.POST("/:id/reports/generate", reportHandler.Generate)
 		}
 	}
 

@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 
+	"github.com/google/uuid"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
@@ -33,7 +34,7 @@ func main() {
 		log.Printf("Warning: failed to connect to database: %v. Database functionality will be unavailable.\n", err)
 	} else {
 		log.Println("Database connection successful. Running auto-migrations...")
-		err = db.AutoMigrate(&domain.User{}, &domain.Project{}, &domain.MediaFile{}, &domain.Frame{}, &domain.Detection{})
+		err = db.AutoMigrate(&domain.User{}, &domain.Project{}, &domain.MediaFile{}, &domain.Frame{}, &domain.Detection{}, &domain.ProgressReport{})
 		if err != nil {
 			log.Printf("Warning: auto-migration failed: %v\n", err)
 		}
@@ -44,14 +45,36 @@ func main() {
 	mediaRepo := repository.NewPostgresMediaFileRepository(db)
 	frameRepo := repository.NewPostgresFrameRepository(db)
 	detectionRepo := repository.NewPostgresDetectionRepository(db)
+	reportRepo := repository.NewPostgresProgressReportRepository(db)
 
 	broker := delivery.NewEventBroker()
 	authUsecase := usecase.NewAuthUsecase(userRepo)
 	projectUsecase := usecase.NewProjectUsecase(projectRepo)
-	mediaUsecase := usecase.NewMediaUsecase(mediaRepo, frameRepo, detectionRepo, cfg, func(mediaID string) {
-		broker.Notifier <- mediaID
-	})
 	analysisUsecase := usecase.NewAnalysisUsecase(frameRepo, mediaRepo)
+	reportUsecase := usecase.NewReportUsecase(reportRepo, projectRepo, mediaRepo, frameRepo, analysisUsecase, cfg)
+
+	mediaUsecase := usecase.NewMediaUsecase(mediaRepo, frameRepo, detectionRepo, cfg, func(mediaIDStr string) {
+		broker.Notifier <- mediaIDStr
+		
+		// Trigger automatic report generation in background
+		go func() {
+			mediaID, err := uuid.Parse(mediaIDStr)
+			if err != nil {
+				return
+			}
+			media, err := mediaRepo.FindByID(mediaID)
+			if err != nil || media == nil {
+				return
+			}
+			log.Printf("Main: Automatically generating daily, weekly, monthly progress reports for project %s after media processing complete", media.ProjectID)
+			for _, rType := range []string{"daily", "weekly", "monthly"} {
+				_, err := reportUsecase.GenerateReport(media.ProjectID, rType)
+				if err != nil {
+					log.Printf("Main: Failed to auto-generate %s report: %v", rType, err)
+				}
+			}
+		}()
+	})
 
 	authHandler := delivery.NewAuthHandler(authUsecase)
 	projectHandler := delivery.NewProjectHandler(projectUsecase)
@@ -59,8 +82,9 @@ func main() {
 	analysisHandler := delivery.NewAnalysisHandler(analysisUsecase)
 	dashboardUsecase := usecase.NewDashboardUsecase(db, projectRepo)
 	dashboardHandler := delivery.NewDashboardHandler(dashboardUsecase)
+	reportHandler := delivery.NewReportHandler(reportUsecase)
 
-	router := delivery.SetupRouter(handler, authHandler, projectHandler, analysisHandler, dashboardHandler, cfg)
+	router := delivery.SetupRouter(handler, authHandler, projectHandler, analysisHandler, dashboardHandler, reportHandler, cfg)
 
 	log.Printf("Starting backend server on port %s...\n", cfg.Port)
 	if err := router.Run(":" + cfg.Port); err != nil {

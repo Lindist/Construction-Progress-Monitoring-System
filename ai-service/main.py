@@ -123,3 +123,146 @@ async def process_video(payload: ProcessPayload):
         "media_id": payload.media_id,
         "frames": frames_list
     }
+
+
+import time
+from typing import List
+
+class ObjectDiff(BaseModel):
+    object_type: str
+    count_a: int
+    count_b: int
+    difference: int
+
+class SummarizePayload(BaseModel):
+    project_name: str
+    report_type: str
+    current_progress: float
+    previous_progress: float
+    growth: float
+    structural_growth_desc: str
+    object_diffs: List[ObjectDiff]
+
+@app.post("/summarize")
+@app.post("/api/summarize")
+async def generate_summary(payload: SummarizePayload):
+    proj_name = payload.project_name
+    rep_type = payload.report_type.upper()
+    curr_prog = payload.current_progress
+    prev_prog = payload.previous_progress
+    growth = payload.growth
+    struct_desc = payload.structural_growth_desc
+    
+    # Index object diffs
+    diffs = {d.object_type: d for d in payload.object_diffs}
+    
+    workers = diffs.get("Worker")
+    helmets = diffs.get("Helmet")
+    cranes = diffs.get("Crane")
+    excavators = diffs.get("Excavator")
+    scaffolding = diffs.get("Scaffolding")
+    pillars = diffs.get("Pillar")
+    walls = diffs.get("Wall")
+    equip = diffs.get("Construction Equipment")
+    
+    # 1. Executive Summary Paragraph
+    if growth > 0:
+        exec_summary = f"The {payload.report_type} inspection for **{proj_name}** indicates a significant construction phase advancement. Over the latest monitoring period, overall project progress increased by **{growth:.1f}%**, rising from a baseline of {prev_prog:.1f}% to **{curr_prog:.1f}%**."
+    elif growth < 0:
+        exec_summary = f"The {payload.report_type} inspection for **{proj_name}** shows progress registered at **{curr_prog:.1f}%** compared to the previous inspection baseline of {prev_prog:.1f}% (change score: {abs(growth):.1f}%)."
+    else:
+        exec_summary = f"The {payload.report_type} inspection for **{proj_name}** indicates a period of structural consolidation. Overall project progress remains stable at **{curr_prog:.1f}%** compared to the previous inspection baseline of {prev_prog:.1f}%."
+
+    # 2. Structural Growth Paragraph
+    structural_details = []
+    if struct_desc and "No structural growth" not in struct_desc:
+        structural_details.append(struct_desc)
+    
+    if pillars and pillars.difference > 0:
+        structural_details.append(f"We recorded the completion of {pillars.difference} new support pillars on site, strengthening the vertical framework.")
+    elif pillars and pillars.count_b > 0:
+        structural_details.append(f"A total of {pillars.count_b} structural support pillars are actively standing in the current inspection layout.")
+        
+    if walls and walls.difference > 0:
+        structural_details.append(f"Core concrete wall segments increased by {walls.difference} sections, expanding partition framing.")
+    elif walls and walls.count_b > 0:
+        structural_details.append(f"Partition framing is steady with {walls.count_b} concrete wall sections verified.")
+        
+    if scaffolding and scaffolding.difference > 0:
+        structural_details.append(f"Temporary scaffolding installations were expanded (+{scaffolding.difference} zones) to facilitate overhead welding and masonry.")
+    elif scaffolding and scaffolding.count_b > 0:
+        structural_details.append(f"Scaffolding support frames are active across {scaffolding.count_b} sectors.")
+        
+    if not structural_details:
+        structural_details.append("No major layout or structural boundary modifications were registered during this timeline.")
+        
+    structural_para = " ".join(structural_details)
+
+    # 3. Resource Activity & Safety Paragraph
+    resource_details = []
+    
+    worker_count = workers.count_b if workers else 0
+    helmet_count = helmets.count_b if helmets else 0
+    
+    if worker_count > 0:
+        compliance_pct = 100.0
+        if helmet_count < worker_count:
+            compliance_pct = (helmet_count / worker_count) * 100.0
+            
+        resource_details.append(f"AI inspection identified {worker_count} active workers on the site floor.")
+        if compliance_pct >= 95.0:
+            resource_details.append(f"Safety compliance audits logged excellent PPE helmet adherence at **{compliance_pct:.0f}%**.")
+        else:
+            resource_details.append(f"WARNING: Safety compliance checks flagged a **{compliance_pct:.0f}%** PPE helmet rate ({worker_count - helmet_count} worker(s) without safety gear detected in high-risk sectors). Safety alerts have been issued.")
+    else:
+        resource_details.append("No worker personnel were active on the main construction floor during the visual sweeps.")
+
+    active_machinery = []
+    if cranes and cranes.count_b > 0:
+        active_machinery.append(f"{cranes.count_b} tower crane(s)")
+    if excavators and excavators.count_b > 0:
+        active_machinery.append(f"{excavators.count_b} excavation vehicle(s)")
+    if equip and equip.count_b > 0:
+        active_machinery.append(f"{equip.count_b} general construction equipment units")
+        
+    if active_machinery:
+        resource_details.append("Heavy site machinery was logged in operation: " + ", ".join(active_machinery) + ".")
+    else:
+        resource_details.append("No active heavy machinery operations were captured in this inspection window.")
+
+    resource_para = " ".join(resource_details)
+
+    # 4. Recommendation Paragraph
+    recommendations = []
+    if growth > 0:
+        recommendations.append("Continue current structural construction velocity to stay aligned with the timeline milestones.")
+    else:
+        recommendations.append("Verify logistical pipeline for structural materials to resume progress velocity.")
+        
+    if workers and helmet_count < worker_count:
+        recommendations.append("Enforce strict safety checkpoints and mandatory helmet inspections at Sector access gates.")
+    else:
+        recommendations.append("Maintain high PPE compliance standards across all active sectors.")
+        
+    if walls and walls.difference > 0:
+        recommendations.append("Schedule concrete curing inspection and moisture level tests on newly added wall sections.")
+
+    rec_para = " ".join(recommendations)
+
+    summary_text = (
+        f"### 🚧 AI Construction Audit Report: {proj_name}\n"
+        f"**Reporting Frequency:** {rep_type} | **Generated on:** {time.strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+        f"**Executive Summary:**\n"
+        f"{exec_summary}\n\n"
+        f"**Progress Analysis:**\n"
+        f"1. **Structural Growth:** {structural_para}\n"
+        f"2. **Resource Activity & Safety:** {resource_para}\n\n"
+        f"**Recommendation:**\n"
+        f"{rec_para}"
+    )
+
+    return {
+        "summary": summary_text,
+        "progress_percentage": curr_prog
+    }
+

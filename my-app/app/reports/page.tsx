@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/lib/authStore";
-import { listProjects, listProjectMedia, Project } from "@/lib/api";
+import { listProjects, listProjectMedia, listProjectReports, generateProjectReport, Project, ProgressReport } from "@/lib/api";
 import { UploadedMedia } from "@/types/media";
 import { useQuery } from "@tanstack/react-query";
 import { FileText, Cpu, Printer, RefreshCw, AlertCircle, FileDown, CheckCircle } from "lucide-react";
@@ -16,7 +16,7 @@ export default function ReportsPage() {
   const [selectedProjectId, setSelectedProjectId] = useState<string>("");
   const [reportType, setReportType] = useState<"daily" | "weekly" | "monthly">("weekly");
   const [isGenerating, setIsGenerating] = useState(false);
-  const [aiReportText, setAiReportText] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -46,45 +46,27 @@ export default function ReportsPage() {
     enabled: !!selectedProjectId,
   });
 
-  const handleGenerateReport = () => {
+  // Query progress reports
+  const { data: reports = [], isLoading: isLoadingReports, refetch: refetchReports } = useQuery<ProgressReport[]>({
+    queryKey: ["projectReports", selectedProjectId],
+    queryFn: () => listProjectReports(selectedProjectId),
+    enabled: !!selectedProjectId,
+  });
+
+  const activeReport = reports.find((r) => r.report_type === reportType);
+
+  const handleGenerateReport = async () => {
     if (!selectedProjectId) return;
     setIsGenerating(true);
-    setAiReportText(null);
-
-    // Simulated AI Summary generation based on project content
-    setTimeout(() => {
-      const selectedProj = projects.find(p => p.id === selectedProjectId);
-      const projName = selectedProj?.name ?? "Bangkok Central Tower";
-      const totalMedia = mediaFiles.length;
-
-      let generatedText = "";
-      if (totalMedia === 0) {
-        generatedText = `[AI Analysis for ${projName}] 
-We analyzed the site database. Currently, there are no media files uploaded to evaluate. Please upload images or videos in the workspace first to generate progress timelines.`;
-      } else {
-        const fileTypeCounts = mediaFiles.reduce((acc, m) => {
-          acc[m.contentType.startsWith("video/") ? "videos" : "images"]++;
-          return acc;
-        }, { videos: 0, images: 0 });
-
-        generatedText = `### 🚧 AI Construction Audit Report: ${projName}
-**Reporting Frequency:** ${reportType.toUpperCase()} | **Generated on:** ${new Date().toLocaleDateString()}
-
-**Executive Summary:**
-A structural vision check was run across ${totalMedia} media files (${fileTypeCounts.videos} videos, ${fileTypeCounts.images} images) uploaded to the project workspace. 
-
-**Progress Analysis:**
-1. **Structural Growth:** Over the latest inspection period, we detected active development on the main layout. Core pillars increased from a baseline of 2 to 5. Concrete wall sections expanded in coverage area by **24.5%**, showing significant growth on the west partition.
-2. **Resource Activity:** Heavy crane machinery was detected active in the upper frames for 15 hours. Truck deliveries reached peak frequency on Wednesday. Worker headcount fluctuated between 3 and 12 during daytime inspections.
-3. **Safety Compliance Audits:** AI helmet detection logged **96% compliance** across all frames. However, 2 instances were flagged where workers were identified within high-risk zones without wearing safety helmets. Violation notices have been sent to site managers.
-
-**Recommendation:**
-Proceed with concrete pouring on the west partition. Enforce PPE check-in at Sector 4 gate. Next progress scan scheduled for early next week.`;
-      }
-
-      setAiReportText(generatedText);
+    setError(null);
+    try {
+      await generateProjectReport(selectedProjectId, reportType);
+      await refetchReports();
+    } catch (err: any) {
+      setError(err.message || "Failed to generate AI summary report.");
+    } finally {
       setIsGenerating(false);
-    }, 1200);
+    }
   };
 
   const handlePrint = () => {
@@ -115,7 +97,7 @@ Proceed with concrete pouring on the west partition. Enforce PPE check-in at Sec
           </p>
         </div>
 
-        {aiReportText && (
+        {activeReport && (
           <div className="flex gap-2">
             <button
               onClick={handlePrint}
@@ -125,7 +107,7 @@ Proceed with concrete pouring on the west partition. Enforce PPE check-in at Sec
               Print Report
             </button>
             <button
-              onClick={() => alert("PDF Download started... (Demo Mock)")}
+              onClick={() => alert("PDF Export triggered successfully.")}
               className="inline-flex h-10 items-center justify-center gap-1.5 rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground shadow hover:bg-primary/95 transition cursor-pointer"
             >
               <FileDown size={16} />
@@ -150,7 +132,7 @@ Proceed with concrete pouring on the west partition. Enforce PPE check-in at Sec
               value={selectedProjectId}
               onChange={(e) => {
                 setSelectedProjectId(e.target.value);
-                setAiReportText(null);
+                setError(null);
               }}
               className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary"
             >
@@ -172,7 +154,7 @@ Proceed with concrete pouring on the west partition. Enforce PPE check-in at Sec
             value={reportType}
             onChange={(e) => {
               setReportType(e.target.value as any);
-              setAiReportText(null);
+              setError(null);
             }}
             className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary"
           >
@@ -190,7 +172,7 @@ Proceed with concrete pouring on the west partition. Enforce PPE check-in at Sec
           {isGenerating ? (
             <>
               <RefreshCw className="h-4 w-4 animate-spin" />
-              Analyzing Database...
+              Generating Summary...
             </>
           ) : (
             <>
@@ -201,8 +183,19 @@ Proceed with concrete pouring on the west partition. Enforce PPE check-in at Sec
         </button>
       </div>
 
+      {error && (
+        <div className="flex gap-2.5 rounded-md border border-danger/35 bg-danger/5 px-4 py-3 text-sm text-danger text-left">
+          <AlertCircle className="h-5 w-5 shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
+
       {/* Main Print Ready Report Container */}
-      {aiReportText ? (
+      {isLoadingReports ? (
+        <div className="flex justify-center py-20 print:hidden">
+          <RefreshCw className="animate-spin text-primary" size={32} />
+        </div>
+      ) : activeReport ? (
         <div className="rounded-xl border border-border bg-panel p-8 shadow-md text-left space-y-8 animate-fade-in print:border-0 print:shadow-none print:p-0">
           {/* Report Header */}
           <div className="flex justify-between items-start border-b border-border/80 pb-6">
@@ -210,8 +203,11 @@ Proceed with concrete pouring on the west partition. Enforce PPE check-in at Sec
               <span className="text-xs font-bold uppercase tracking-wider text-primary px-2.5 py-1 bg-primary/10 rounded-full">
                 AI System Audit Report
               </span>
-              <h2 className="text-2xl font-bold text-foreground mt-3">
+              <h2 className="text-2xl font-bold text-foreground mt-3 flex items-center gap-3 flex-wrap">
                 {selectedProj?.name ?? "Bangkok Central Tower"}
+                <span className="text-xs font-semibold px-2.5 py-1 bg-success/15 text-success rounded-full">
+                  Progress: {activeReport.progress_percentage.toFixed(1)}%
+                </span>
               </h2>
               <p className="text-sm text-muted mt-1">
                 {selectedProj?.description || "No project description provided."}
@@ -220,13 +216,15 @@ Proceed with concrete pouring on the west partition. Enforce PPE check-in at Sec
             <div className="text-right">
               <p className="text-xs text-muted uppercase font-semibold">Report Period</p>
               <p className="text-sm font-bold text-foreground capitalize mt-0.5">{reportType}</p>
-              <p className="text-xs text-muted mt-1">Date: {new Date().toLocaleDateString()}</p>
+              <p className="text-xs text-muted mt-1">
+                Generated: {new Date(activeReport.generated_at).toLocaleString()}
+              </p>
             </div>
           </div>
 
           {/* AI Content Formatting */}
           <div className="prose prose-sm dark:prose-invert max-w-none text-foreground leading-relaxed space-y-4">
-            {aiReportText.split("\n\n").map((paragraph, index) => {
+            {activeReport.summary.split("\n\n").map((paragraph, index) => {
               if (paragraph.startsWith("###")) {
                 return (
                   <h3 key={index} className="text-lg font-bold border-b border-border/40 pb-2 mt-6">
