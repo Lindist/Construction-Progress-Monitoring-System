@@ -49,6 +49,8 @@ func SetupRouter(handler *Handler, authHandler *AuthHandler, projectHandler *Pro
 		api.GET("/health", handler.Health)
 		api.POST("/uploads", handler.UploadMedia)
 		api.GET("/media/:id/frames", handler.GetMediaFrames)
+		api.DELETE("/media/:id", AuthMiddleware(), handler.DeleteMedia)
+		api.PUT("/media/:id", AuthMiddleware(), handler.UpdateMedia)
 		api.GET("/media/events", handler.MediaEvents)
 		api.GET("/media", AuthMiddleware(), handler.ListAllMedia)
 		api.GET("/analysis/compare", AuthMiddleware(), analysisHandler.Compare)

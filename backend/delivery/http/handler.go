@@ -324,3 +324,82 @@ func (h *Handler) MediaEvents(c *gin.Context) {
 		return false
 	})
 }
+
+type UpdateMediaRequest struct {
+	OriginalName string `json:"original_name" binding:"required"`
+}
+
+func (h *Handler) DeleteMedia(c *gin.Context) {
+	userIDVal, _ := c.Get("userID")
+	userID := userIDVal.(uuid.UUID)
+
+	mediaIDStr := c.Param("id")
+	mediaID, err := uuid.Parse(mediaIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"detail": "Invalid media ID format."})
+		return
+	}
+
+	err = h.mediaUsecase.DeleteMedia(userID, mediaID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"detail": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Media deleted successfully."})
+}
+
+func (h *Handler) UpdateMedia(c *gin.Context) {
+	userIDVal, _ := c.Get("userID")
+	userID := userIDVal.(uuid.UUID)
+
+	mediaIDStr := c.Param("id")
+	mediaID, err := uuid.Parse(mediaIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"detail": "Invalid media ID format."})
+		return
+	}
+
+	var req UpdateMediaRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
+		return
+	}
+
+	media, err := h.mediaUsecase.UpdateMedia(userID, mediaID, req.OriginalName)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"detail": err.Error()})
+		return
+	}
+
+	var sizeBytes int64
+	if stat, err := os.Stat(media.FilePath); err == nil {
+		sizeBytes = stat.Size()
+	}
+
+	thumbnailPath := filepath.Join(h.config.UploadsDir(), "frames", media.ID.String(), "thumbnail.jpg")
+	var thumbnailURL string
+	if _, err := os.Stat(thumbnailPath); err == nil {
+		thumbnailURL = fmt.Sprintf("/uploads/frames/%s/thumbnail.jpg", media.ID.String())
+	}
+
+	timelinePath := filepath.Join(h.config.UploadsDir(), "frames", media.ID.String(), "timeline.jpg")
+	var timelineURL string
+	if _, err := os.Stat(timelinePath); err == nil {
+		timelineURL = fmt.Sprintf("/uploads/frames/%s/timeline.jpg", media.ID.String())
+	}
+
+	urlPath := fmt.Sprintf("/uploads/%s", filepath.Base(media.FilePath))
+
+	c.JSON(http.StatusOK, UploadResponse{
+		ID:           media.ID.String(),
+		ProjectID:    media.ProjectID.String(),
+		OriginalName: media.FileName,
+		ContentType:  media.FileType,
+		SizeBytes:    sizeBytes,
+		UploadedAt:   media.UploadedAt.Format("2006-01-02T15:04:05.999Z07:00"),
+		URL:          urlPath,
+		ThumbnailURL: thumbnailURL,
+		TimelineURL:  timelineURL,
+	})
+}

@@ -5,6 +5,7 @@ import (
 	"backend/config"
 	"backend/domain"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -23,22 +24,26 @@ type MediaUsecase interface {
 	ListProjectMedia(projectID uuid.UUID) ([]domain.MediaFile, error)
 	GetMediaFrames(mediaID uuid.UUID) ([]domain.Frame, error)
 	ProcessVideo(mediaID uuid.UUID, filePath string) error
+	DeleteMedia(ownerID uuid.UUID, mediaID uuid.UUID) error
+	UpdateMedia(ownerID uuid.UUID, mediaID uuid.UUID, originalName string) (*domain.MediaFile, error)
 }
 
 type mediaUsecase struct {
 	repo              domain.MediaFileRepository
 	frameRepo         domain.FrameRepository
 	detectionRepo     domain.DetectionRepository
+	projectRepo       domain.ProjectRepository
 	config            *config.Config
 	jobUsecase        JobUsecase
 	onProcessComplete func(mediaID string)
 }
 
-func NewMediaUsecase(repo domain.MediaFileRepository, frameRepo domain.FrameRepository, detectionRepo domain.DetectionRepository, cfg *config.Config, jobUsecase JobUsecase, onProcessComplete func(mediaID string)) MediaUsecase {
+func NewMediaUsecase(repo domain.MediaFileRepository, frameRepo domain.FrameRepository, detectionRepo domain.DetectionRepository, projectRepo domain.ProjectRepository, cfg *config.Config, jobUsecase JobUsecase, onProcessComplete func(mediaID string)) MediaUsecase {
 	return &mediaUsecase{
 		repo:              repo,
 		frameRepo:         frameRepo,
 		detectionRepo:     detectionRepo,
+		projectRepo:       projectRepo,
 		config:            cfg,
 		jobUsecase:        jobUsecase,
 		onProcessComplete: onProcessComplete,
@@ -269,4 +274,72 @@ func (u *mediaUsecase) ProcessVideo(mediaID uuid.UUID, filePath string) error {
 	}
 
 	return nil
+}
+
+func (u *mediaUsecase) DeleteMedia(ownerID uuid.UUID, mediaID uuid.UUID) error {
+	media, err := u.repo.FindByID(mediaID)
+	if err != nil {
+		return err
+	}
+
+	// Verify project ownership
+	project, err := u.projectRepo.FindByID(media.ProjectID)
+	if err != nil {
+		return err
+	}
+	if project.OwnerID != ownerID {
+		return errors.New("unauthorized to delete this media")
+	}
+
+	// 1. Delete physical files
+	if media.FilePath != "" {
+		_ = os.Remove(media.FilePath)
+	}
+	metadataPath := filepath.Join(u.config.MetadataDir(), fmt.Sprintf("%s.json", media.ID.String()))
+	_ = os.Remove(metadataPath)
+
+	framesDir := filepath.Join(u.config.UploadsDir(), "frames", media.ID.String())
+	_ = os.RemoveAll(framesDir)
+
+	// 2. Delete DB records
+	return u.repo.Delete(mediaID)
+}
+
+func (u *mediaUsecase) UpdateMedia(ownerID uuid.UUID, mediaID uuid.UUID, originalName string) (*domain.MediaFile, error) {
+	media, err := u.repo.FindByID(mediaID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Verify project ownership
+	project, err := u.projectRepo.FindByID(media.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	if project.OwnerID != ownerID {
+		return nil, errors.New("unauthorized to update this media")
+	}
+
+	// Update in memory
+	media.FileName = originalName
+
+	// Update metadata file
+	metadataPath := filepath.Join(u.config.MetadataDir(), fmt.Sprintf("%s.json", media.ID.String()))
+	var metadata FileMetadata
+	metaBytes, err := os.ReadFile(metadataPath)
+	if err == nil {
+		if err := json.Unmarshal(metaBytes, &metadata); err == nil {
+			metadata.OriginalName = originalName
+			if newMetaBytes, err := json.MarshalIndent(metadata, "", "  "); err == nil {
+				_ = os.WriteFile(metadataPath, newMetaBytes, 0644)
+			}
+		}
+	}
+
+	// Save to DB
+	if err := u.repo.Update(media); err != nil {
+		return nil, err
+	}
+
+	return media, nil
 }

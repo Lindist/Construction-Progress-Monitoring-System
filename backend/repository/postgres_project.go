@@ -33,6 +33,7 @@ func (r *postgresProjectRepository) Delete(id uuid.UUID) error {
 	if r.db == nil {
 		return nil
 	}
+	r.db.Delete(&domain.ProgressReport{}, "project_id = ?", id)
 	return r.db.Delete(&domain.Project{}, "id = ?", id).Error
 }
 

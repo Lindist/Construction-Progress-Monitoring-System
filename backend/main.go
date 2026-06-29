@@ -50,7 +50,7 @@ func main() {
 
 	broker := delivery.NewEventBroker()
 	authUsecase := usecase.NewAuthUsecase(userRepo)
-	projectUsecase := usecase.NewProjectUsecase(projectRepo)
+	projectUsecase := usecase.NewProjectUsecase(projectRepo, mediaRepo, cfg)
 	analysisUsecase := usecase.NewAnalysisUsecase(frameRepo, mediaRepo)
 	reportUsecase := usecase.NewReportUsecase(reportRepo, projectRepo, mediaRepo, frameRepo, analysisUsecase, cfg)
 
@@ -84,7 +84,7 @@ func main() {
 	}
 
 	jobUsecase := usecase.NewJobUsecase(jobRepo, mediaRepo, frameRepo, detectionRepo, queueMgr, onProcessComplete)
-	mediaUsecase := usecase.NewMediaUsecase(mediaRepo, frameRepo, detectionRepo, cfg, jobUsecase, onProcessComplete)
+	mediaUsecase := usecase.NewMediaUsecase(mediaRepo, frameRepo, detectionRepo, projectRepo, cfg, jobUsecase, onProcessComplete)
 
 	authHandler := delivery.NewAuthHandler(authUsecase)
 	projectHandler := delivery.NewProjectHandler(projectUsecase)

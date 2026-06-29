@@ -52,3 +52,33 @@ func (r *postgresMediaFileRepository) FindByProjectID(projectID uuid.UUID) ([]do
 	return mediaFiles, err
 }
 
+func (r *postgresMediaFileRepository) Update(media *domain.MediaFile) error {
+	if r.db == nil {
+		return nil
+	}
+	return r.db.Save(media).Error
+}
+
+func (r *postgresMediaFileRepository) Delete(id uuid.UUID) error {
+	if r.db == nil {
+		return nil
+	}
+
+	// 1. Delete detections of frames of this media
+	var frames []domain.Frame
+	if err := r.db.Where("media_id = ?", id).Find(&frames).Error; err == nil {
+		for _, f := range frames {
+			r.db.Delete(&domain.Detection{}, "frame_id = ?", f.ID)
+		}
+	}
+
+	// 2. Delete frames
+	r.db.Delete(&domain.Frame{}, "media_id = ?", id)
+
+	// 3. Delete jobs
+	r.db.Delete(&domain.Job{}, "media_id = ?", id)
+
+	// 4. Delete media file
+	return r.db.Delete(&domain.MediaFile{}, "id = ?", id).Error
+}
+

@@ -28,4 +28,6 @@ type MediaFileRepository interface {
 	FindByID(id uuid.UUID) (*MediaFile, error)
 	FindAll() ([]MediaFile, error)
 	FindByProjectID(projectID uuid.UUID) ([]MediaFile, error)
+	Update(media *MediaFile) error
+	Delete(id uuid.UUID) error
 }

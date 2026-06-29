@@ -448,4 +448,41 @@ export const generateProjectReport = async (
   return response.json();
 };
 
+export interface UpdateMediaParams {
+  original_name: string;
+}
+
+export const deleteMedia = async (id: string): Promise<void> => {
+  const response = await fetch(`${API_BASE_URL}/api/media/${id}`, {
+    method: "DELETE",
+    headers: getHeaders(),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.detail || "Failed to delete media.");
+  }
+};
+
+export const updateMedia = async (
+  id: string,
+  params: UpdateMediaParams
+): Promise<UploadedMedia> => {
+  const response = await fetch(`${API_BASE_URL}/api/media/${id}`, {
+    method: "PUT",
+    headers: getHeaders({
+      "Content-Type": "application/json",
+    }),
+    body: JSON.stringify(params),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.detail || "Failed to update media.");
+  }
+
+  const data = (await response.json()) as UploadApiResponse;
+  return toUploadedMedia(data);
+};
+
 

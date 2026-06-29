@@ -1,8 +1,12 @@
 package usecase
 
 import (
+	"backend/config"
 	"backend/domain"
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,10 +22,16 @@ type ProjectUsecase interface {
 
 type projectUsecase struct {
 	projectRepo domain.ProjectRepository
+	mediaRepo   domain.MediaFileRepository
+	config      *config.Config
 }
 
-func NewProjectUsecase(repo domain.ProjectRepository) ProjectUsecase {
-	return &projectUsecase{projectRepo: repo}
+func NewProjectUsecase(repo domain.ProjectRepository, mediaRepo domain.MediaFileRepository, cfg *config.Config) ProjectUsecase {
+	return &projectUsecase{
+		projectRepo: repo,
+		mediaRepo:   mediaRepo,
+		config:      cfg,
+	}
 }
 
 func (u *projectUsecase) CreateProject(ownerID uuid.UUID, req *domain.CreateProjectRequest) (*domain.Project, error) {
@@ -71,6 +81,26 @@ func (u *projectUsecase) DeleteProject(ownerID uuid.UUID, projectID uuid.UUID) e
 
 	if project.OwnerID != ownerID {
 		return errors.New("unauthorized to delete this project")
+	}
+
+	// 1. Delete all associated media files locally
+	mediaFiles, err := u.mediaRepo.FindByProjectID(projectID)
+	if err == nil {
+		for _, m := range mediaFiles {
+			// Remove the main media file
+			if m.FilePath != "" {
+				_ = os.Remove(m.FilePath)
+			}
+			// Remove metadata JSON
+			metadataPath := filepath.Join(u.config.MetadataDir(), fmt.Sprintf("%s.json", m.ID.String()))
+			_ = os.Remove(metadataPath)
+			// Remove keyframes directory
+			framesDir := filepath.Join(u.config.UploadsDir(), "frames", m.ID.String())
+			_ = os.RemoveAll(framesDir)
+
+			// Delete from DB (which cleans up related DB tables via our repository delete)
+			_ = u.mediaRepo.Delete(m.ID)
+		}
 	}
 
 	return u.projectRepo.Delete(projectID)

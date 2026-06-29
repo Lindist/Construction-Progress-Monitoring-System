@@ -3,10 +3,10 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/lib/authStore";
-import { listProjects, listAllMedia, listMediaFrames, Project, VideoFrame, Detection, API_BASE_URL } from "@/lib/api";
+import { listProjects, listAllMedia, listMediaFrames, deleteMedia, updateMedia, Project, VideoFrame, Detection, API_BASE_URL } from "@/lib/api";
 import { UploadedMedia } from "@/types/media";
-import { useQuery } from "@tanstack/react-query";
-import { Film, Loader2, RefreshCw, Calendar, HardDrive, Search, Filter, CheckCircle, Eye, EyeOff, X, User } from "lucide-react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Film, Loader2, RefreshCw, Calendar, HardDrive, Search, Filter, CheckCircle, Eye, EyeOff, X, User, Edit, Trash } from "lucide-react";
 
 const formatBytes = (bytes: number): string => {
   if (bytes === 0) return "0 B";
@@ -42,6 +42,59 @@ export default function MediaLibraryPage() {
     Wall: true,
     "Construction Equipment": true,
   });
+
+  // Edit & Delete Media States & Mutations
+  const queryClient = useQueryClient();
+  const [editingMedia, setEditingMedia] = useState<UploadedMedia | null>(null);
+  const [editName, setEditName] = useState("");
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editErrorMessage, setEditErrorMessage] = useState<string | null>(null);
+
+  const deleteMutation = useMutation({
+    mutationFn: deleteMedia,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["allMedia"] });
+    },
+    onError: (err: any) => {
+      alert(err.message || "Failed to delete media.");
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, params }: { id: string; params: { original_name: string } }) =>
+      updateMedia(id, params),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["allMedia"] });
+      setIsEditModalOpen(false);
+      setEditingMedia(null);
+      setEditName("");
+    },
+    onError: (err: any) => {
+      setEditErrorMessage(err.message || "Failed to update media name.");
+    },
+  });
+
+  const handleDeleteMedia = (id: string, name: string) => {
+    if (confirm(`Are you sure you want to delete "${name}"?`)) {
+      deleteMutation.mutate(id);
+    }
+  };
+
+  const handleOpenEditModal = (media: UploadedMedia) => {
+    setEditingMedia(media);
+    setEditName(media.originalName);
+    setEditErrorMessage(null);
+    setIsEditModalOpen(true);
+  };
+
+  const handleEditSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingMedia || !editName.trim()) return;
+    updateMutation.mutate({
+      id: editingMedia.id,
+      params: { original_name: editName.trim() },
+    });
+  };
 
   useEffect(() => {
     setMounted(true);
@@ -241,6 +294,20 @@ export default function MediaLibraryPage() {
                     >
                       View Original
                     </a>
+                    <button
+                      onClick={() => handleOpenEditModal(media)}
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border bg-background text-muted hover:bg-panel-strong hover:text-foreground transition cursor-pointer"
+                      title="Rename file"
+                    >
+                      <Edit size={14} />
+                    </button>
+                    <button
+                      onClick={() => handleDeleteMedia(media.id, media.originalName)}
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border bg-background text-muted hover:bg-danger/10 hover:text-danger transition cursor-pointer"
+                      title="Delete file"
+                    >
+                      <Trash size={14} />
+                    </button>
                     {isVideo && isProcessed && (
                       <button
                         onClick={() => handleToggleFrames(media.id)}
@@ -537,6 +604,57 @@ export default function MediaLibraryPage() {
                 Tip: Bounding box overlays scale to the viewport window. Toggle categories to filter.
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Media Modal */}
+      {isEditModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="w-full max-w-md rounded-xl border border-border bg-panel p-6 shadow-lg">
+            <h2 className="text-xl font-semibold text-foreground text-left">
+              Rename Media File
+            </h2>
+            <p className="mt-1 text-xs text-muted text-left">
+              Change the display name of this inspection file.
+            </p>
+
+            {editErrorMessage && (
+              <div className="mt-4 rounded bg-danger/10 p-2 text-xs text-danger text-left">
+                {editErrorMessage}
+              </div>
+            )}
+
+            <form onSubmit={handleEditSubmit} className="mt-4 space-y-4 text-left">
+              <div>
+                <label className="block text-xs font-medium text-foreground">File Name</label>
+                <input
+                  type="text"
+                  required
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary"
+                  placeholder="e.g. BangNa-CCTV-01.mp4"
+                />
+              </div>
+
+              <div className="mt-6 flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsEditModalOpen(false)}
+                  className="rounded-md border border-border bg-transparent px-4 py-2 text-sm font-semibold text-muted hover:bg-panel-strong cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={updateMutation.isPending}
+                  className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow hover:bg-primary/95 disabled:opacity-50 cursor-pointer"
+                >
+                  {updateMutation.isPending ? "Saving..." : "Save"}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
