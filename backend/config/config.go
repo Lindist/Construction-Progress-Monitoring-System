@@ -16,6 +16,7 @@ type Config struct {
 	StorageRoot  string
 	CorsOrigins  []string
 	AIServiceURL string
+	RedisURL     string
 }
 
 func LoadConfig() *Config {
@@ -64,6 +65,11 @@ func LoadConfig() *Config {
 		aiServiceURL = "http://localhost:8001"
 	}
 
+	redisURL := os.Getenv("REDIS_URL")
+	if redisURL == "" {
+		redisURL = "redis://localhost:6379/0"
+	}
+
 	return &Config{
 		AppName:      appName,
 		Port:         port,
@@ -71,6 +77,7 @@ func LoadConfig() *Config {
 		StorageRoot:  storageRoot,
 		CorsOrigins:  corsOrigins,
 		AIServiceURL: aiServiceURL,
+		RedisURL:     redisURL,
 	}
 }
 

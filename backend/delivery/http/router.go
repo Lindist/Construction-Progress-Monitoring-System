@@ -34,7 +34,7 @@ func CORSMiddleware(allowedOrigins []string) gin.HandlerFunc {
 	}
 }
 
-func SetupRouter(handler *Handler, authHandler *AuthHandler, projectHandler *ProjectHandler, analysisHandler *AnalysisHandler, dashboardHandler *DashboardHandler, reportHandler *ReportHandler, cfg *config.Config) *gin.Engine {
+func SetupRouter(handler *Handler, authHandler *AuthHandler, projectHandler *ProjectHandler, analysisHandler *AnalysisHandler, dashboardHandler *DashboardHandler, reportHandler *ReportHandler, jobHandler *JobHandler, cfg *config.Config) *gin.Engine {
 	r := gin.Default()
 
 	// CORS Middleware
@@ -53,6 +53,13 @@ func SetupRouter(handler *Handler, authHandler *AuthHandler, projectHandler *Pro
 		api.GET("/media", AuthMiddleware(), handler.ListAllMedia)
 		api.GET("/analysis/compare", AuthMiddleware(), analysisHandler.Compare)
 		api.GET("/dashboard", AuthMiddleware(), dashboardHandler.GetStats)
+
+		// Job routes
+		api.GET("/jobs/:id", AuthMiddleware(), jobHandler.GetByID)
+		api.GET("/jobs", AuthMiddleware(), jobHandler.List)
+		api.POST("/jobs/:id/retry", AuthMiddleware(), jobHandler.Retry)
+		api.POST("/jobs/:id/status", jobHandler.UpdateStatus)
+		api.POST("/jobs/:id/results", jobHandler.SubmitResults)
 
 		// Auth routes
 		auth := api.Group("/auth")

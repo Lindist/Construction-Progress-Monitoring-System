@@ -3,6 +3,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import cv2
 import os
+import threading
+import json
+import time
+import traceback
+import redis
+import requests
 from detector import ConstructionDetector
 
 
@@ -28,27 +34,25 @@ class ProcessPayload(BaseModel):
 async def health():
     return {"status": "ok", "service": "ai-service"}
 
-@app.post("/process")
-@app.post("/api/process")
-async def process_video(payload: ProcessPayload):
+def run_video_processing(media_id: str, file_path: str, interval: float = 5.0) -> dict:
     # Resolve storage paths
     storage_root = os.getenv("STORAGE_ROOT", "../storage")
-    video_path = os.path.abspath(payload.file_path)
+    video_path = os.path.abspath(file_path)
     
     if not os.path.exists(video_path):
         # Try finding it relative to storage root if absolute path check fails due to OS differences
-        alt_path = os.path.abspath(os.path.join(storage_root, "uploads", os.path.basename(payload.file_path)))
+        alt_path = os.path.abspath(os.path.join(storage_root, "uploads", os.path.basename(file_path)))
         if os.path.exists(alt_path):
             video_path = alt_path
         else:
-            raise HTTPException(status_code=404, detail=f"Video file not found at {video_path}")
+            raise FileNotFoundError(f"Video file not found at {video_path}")
             
-    output_dir = os.path.abspath(os.path.join(storage_root, "uploads", "frames", payload.media_id))
+    output_dir = os.path.abspath(os.path.join(storage_root, "uploads", "frames", media_id))
     os.makedirs(output_dir, exist_ok=True)
     
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
-        raise HTTPException(status_code=400, detail=f"Failed to open video file: {video_path}")
+        raise Exception(f"Failed to open video file: {video_path}")
         
     fps = cap.get(cv2.CAP_PROP_FPS)
     if fps <= 0:
@@ -77,7 +81,7 @@ async def process_video(payload: ProcessPayload):
         
         # Run object detection
         try:
-            frame_detections = detector.detect(frame_save_path, payload.media_id, t)
+            frame_detections = detector.detect(frame_save_path, media_id, t)
         except Exception as e:
             print(f"Failed to run detection on frame at t={t}: {e}")
             frame_detections = []
@@ -89,7 +93,7 @@ async def process_video(payload: ProcessPayload):
             "detections": frame_detections
         })
         
-        t += payload.interval
+        t += interval
         
     cap.release()
     
@@ -120,9 +124,112 @@ async def process_video(payload: ProcessPayload):
             cv2.imwrite(timeline_path, timeline_strip)
             
     return {
-        "media_id": payload.media_id,
+        "media_id": media_id,
         "frames": frames_list
     }
+
+@app.post("/process")
+@app.post("/api/process")
+async def process_video(payload: ProcessPayload):
+    try:
+        return run_video_processing(payload.media_id, payload.file_path, payload.interval)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+def redis_worker_loop():
+    redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+    backend_url = os.getenv("BACKEND_URL", "http://localhost:8000")
+    
+    print(f"Worker: Connecting to Redis at {redis_url}...")
+    r = None
+    for attempt in range(15):
+        try:
+            r = redis.Redis.from_url(redis_url)
+            r.ping()
+            print(f"Worker: Connected to Redis successfully on attempt {attempt+1}")
+            break
+        except Exception as e:
+            print(f"Worker: Waiting for Redis... attempt {attempt+1}/15: {e}")
+            time.sleep(2)
+            
+    if r is None:
+        print("Worker: Failed to connect to Redis. Background queue processing will be unavailable.")
+        return
+
+    print(f"Worker: Listening for jobs on 'video_processing_queue' with callback to {backend_url}...")
+    while True:
+        try:
+            # Blocking pop with a timeout
+            job_raw = r.blpop("video_processing_queue", timeout=5)
+            if not job_raw:
+                continue
+                
+            _, payload_str = job_raw
+            job_payload = json.loads(payload_str)
+            
+            job_id = job_payload.get("job_id")
+            media_id = job_payload.get("media_id")
+            file_path = job_payload.get("file_path")
+            interval = job_payload.get("interval", 5.0)
+            
+            print(f"Worker: Processing job {job_id} for media {media_id}")
+            
+            # Update status to processing
+            update_job_status(backend_url, job_id, "processing")
+            
+            try:
+                result = run_video_processing(media_id, file_path, interval)
+                # Submit results
+                submit_job_results(backend_url, job_id, result)
+                print(f"Worker: Job {job_id} completed successfully")
+            except Exception as ex:
+                err_msg = "".join(traceback.format_exception(None, ex, ex.__traceback__))
+                print(f"Worker: Error processing job {job_id}: {err_msg}")
+                # Update status to failed
+                update_job_status(backend_url, job_id, "failed", error_message=str(ex))
+                
+        except Exception as e:
+            print(f"Worker: Error in queue loop: {e}")
+            time.sleep(2)
+
+def update_job_status(backend_url: str, job_id: str, status: str, error_message: str = None):
+    url = f"{backend_url}/api/jobs/{job_id}/status"
+    payload = {"status": status}
+    if error_message:
+        payload["error_message"] = error_message
+        
+    for attempt in range(3):
+        try:
+            resp = requests.post(url, json=payload, timeout=10)
+            if resp.status_code == 200:
+                return
+            print(f"Worker: Failed to update status to {status} for job {job_id}: status_code={resp.status_code}")
+        except Exception as e:
+            print(f"Worker: Error sending status update to backend: {e}")
+        time.sleep(1)
+
+def submit_job_results(backend_url: str, job_id: str, results: dict):
+    url = f"{backend_url}/api/jobs/{job_id}/results"
+    for attempt in range(5):
+        try:
+            resp = requests.post(url, json=results, timeout=30)
+            if resp.status_code == 200:
+                return
+            print(f"Worker: Failed to submit results for job {job_id}: status_code={resp.status_code}")
+        except Exception as e:
+            print(f"Worker: Error submitting results to backend: {e}")
+        time.sleep(2)
+    raise Exception("Failed to post results back to backend after multiple attempts")
+
+@app.on_event("startup")
+def startup_event():
+    # Start Redis background worker thread
+    thread = threading.Thread(target=redis_worker_loop, daemon=True)
+    thread.start()
+    print("AI Service: Started background worker thread")
+
 
 
 import time

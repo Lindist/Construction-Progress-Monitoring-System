@@ -34,7 +34,7 @@ func main() {
 		log.Printf("Warning: failed to connect to database: %v. Database functionality will be unavailable.\n", err)
 	} else {
 		log.Println("Database connection successful. Running auto-migrations...")
-		err = db.AutoMigrate(&domain.User{}, &domain.Project{}, &domain.MediaFile{}, &domain.Frame{}, &domain.Detection{}, &domain.ProgressReport{})
+		err = db.AutoMigrate(&domain.User{}, &domain.Project{}, &domain.MediaFile{}, &domain.Frame{}, &domain.Detection{}, &domain.ProgressReport{}, &domain.Job{})
 		if err != nil {
 			log.Printf("Warning: auto-migration failed: %v\n", err)
 		}
@@ -46,6 +46,7 @@ func main() {
 	frameRepo := repository.NewPostgresFrameRepository(db)
 	detectionRepo := repository.NewPostgresDetectionRepository(db)
 	reportRepo := repository.NewPostgresProgressReportRepository(db)
+	jobRepo := repository.NewPostgresJobRepository(db)
 
 	broker := delivery.NewEventBroker()
 	authUsecase := usecase.NewAuthUsecase(userRepo)
@@ -53,7 +54,13 @@ func main() {
 	analysisUsecase := usecase.NewAnalysisUsecase(frameRepo, mediaRepo)
 	reportUsecase := usecase.NewReportUsecase(reportRepo, projectRepo, mediaRepo, frameRepo, analysisUsecase, cfg)
 
-	mediaUsecase := usecase.NewMediaUsecase(mediaRepo, frameRepo, detectionRepo, cfg, func(mediaIDStr string) {
+	// Redis Queue Manager
+	queueMgr, qErr := repository.NewRedisQueueManager(cfg.RedisURL)
+	if qErr != nil {
+		log.Printf("Warning: Failed to initialize Redis Queue Manager: %v\n", qErr)
+	}
+
+	onProcessComplete := func(mediaIDStr string) {
 		broker.Notifier <- mediaIDStr
 		
 		// Trigger automatic report generation in background
@@ -74,7 +81,10 @@ func main() {
 				}
 			}
 		}()
-	})
+	}
+
+	jobUsecase := usecase.NewJobUsecase(jobRepo, mediaRepo, frameRepo, detectionRepo, queueMgr, onProcessComplete)
+	mediaUsecase := usecase.NewMediaUsecase(mediaRepo, frameRepo, detectionRepo, cfg, jobUsecase, onProcessComplete)
 
 	authHandler := delivery.NewAuthHandler(authUsecase)
 	projectHandler := delivery.NewProjectHandler(projectUsecase)
@@ -83,8 +93,9 @@ func main() {
 	dashboardUsecase := usecase.NewDashboardUsecase(db, projectRepo)
 	dashboardHandler := delivery.NewDashboardHandler(dashboardUsecase)
 	reportHandler := delivery.NewReportHandler(reportUsecase)
+	jobHandler := delivery.NewJobHandler(jobUsecase)
 
-	router := delivery.SetupRouter(handler, authHandler, projectHandler, analysisHandler, dashboardHandler, reportHandler, cfg)
+	router := delivery.SetupRouter(handler, authHandler, projectHandler, analysisHandler, dashboardHandler, reportHandler, jobHandler, cfg)
 
 	log.Printf("Starting backend server on port %s...\n", cfg.Port)
 	if err := router.Run(":" + cfg.Port); err != nil {

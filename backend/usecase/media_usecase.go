@@ -30,15 +30,17 @@ type mediaUsecase struct {
 	frameRepo         domain.FrameRepository
 	detectionRepo     domain.DetectionRepository
 	config            *config.Config
+	jobUsecase        JobUsecase
 	onProcessComplete func(mediaID string)
 }
 
-func NewMediaUsecase(repo domain.MediaFileRepository, frameRepo domain.FrameRepository, detectionRepo domain.DetectionRepository, cfg *config.Config, onProcessComplete func(mediaID string)) MediaUsecase {
+func NewMediaUsecase(repo domain.MediaFileRepository, frameRepo domain.FrameRepository, detectionRepo domain.DetectionRepository, cfg *config.Config, jobUsecase JobUsecase, onProcessComplete func(mediaID string)) MediaUsecase {
 	return &mediaUsecase{
 		repo:              repo,
 		frameRepo:         frameRepo,
 		detectionRepo:     detectionRepo,
 		config:            cfg,
+		jobUsecase:        jobUsecase,
 		onProcessComplete: onProcessComplete,
 	}
 }
@@ -165,16 +167,24 @@ func (u *mediaUsecase) UploadMedia(fileHeader *multipart.FileHeader, projectID u
 		return nil, "", fmt.Errorf("failed to save media file in database: %w", err)
 	}
 
-	// Trigger processing in a background goroutine if it's a video file
+	// Create Background Job if it's a video file
 	if strings.HasPrefix(media.FileType, "video/") {
-		go func() {
-			log.Printf("Usecase: Starting background video processing for %s (%s)\n", media.ID, media.FileName)
-			if err := u.ProcessVideo(media.ID, media.FilePath); err != nil {
-				log.Printf("Usecase: Background processing failed for video %s: %v\n", media.ID, err)
-			} else {
-				log.Printf("Usecase: Background processing completed successfully for video %s\n", media.ID)
+		if u.jobUsecase != nil {
+			log.Printf("Usecase: Creating background processing job for video %s (%s)\n", media.ID, media.FileName)
+			if _, err := u.jobUsecase.CreateJob(media.ID, media.FilePath); err != nil {
+				log.Printf("Usecase: Failed to create background processing job for video %s: %v\n", media.ID, err)
 			}
-		}()
+		} else {
+			// Fallback to inline processing if jobUsecase is not set
+			go func() {
+				log.Printf("Usecase: Fallback: Starting background video processing for %s (%s)\n", media.ID, media.FileName)
+				if err := u.ProcessVideo(media.ID, media.FilePath); err != nil {
+					log.Printf("Usecase: Background processing failed for video %s: %v\n", media.ID, err)
+				} else {
+					log.Printf("Usecase: Background processing completed successfully for video %s\n", media.ID)
+				}
+			}()
+		}
 	}
 
 	return media, urlPath, nil
